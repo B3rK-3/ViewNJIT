@@ -1,0 +1,24 @@
+curl "https://generalssb-prod.ec.njit.edu/BannerExtensibility/internalPb/virtualDomains.stuRegCrseSchedCourseNumbs?Mjc%3DbWF4=OTY%3DMTAw&NDI%3Db2Zmc2V0=NzY%3DMA%3D%3D&NjI%3DdGVybQ%3D%3D=Njk%3DMjAyNjEw&Nzc%3DYXR0cg%3D%3D=MTc%3D&ODM%3Dc3ViamVjdA%3D%3D=MTQ%3DQUNDVA%3D%3D&encoded=true" \
+  -X GET \
+  -H "Host: generalssb-prod.ec.njit.edu" \
+  -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:146.0) Gecko/20100101 Firefox/146.0" \
+  -H "Accept: application/json, text/plain, */*" \
+  -H "Accept-Language: en-US,en;q=0.5" \
+  -H "Accept-Encoding: gzip, deflate, br, zstd" \
+  -H "Referer: https://generalssb-prod.ec.njit.edu/BannerExtensibility/customPage/page/stuRegCrseSched" \
+  -H "Connection: keep-alive" \
+  -H "Sec-GPC: 1" \
+  -H "Sec-Fetch-Dest: empty" \
+  -H "Sec-Fetch-Mode: cors" \
+  -H "Sec-Fetch-Site: same-origin" \
+  -H "TE: trailers" \
+
+
+
+  | Encoded Key | Decoded          | Encoded Value | Decoded         |
+| ----------- | ---------------- | ------------- | --------------- |
+| `Mjc=`      | 27 → **max**     | `OTY=`        | 96 → **100**    |
+| `NDI=`      | 42 → **offset**  | `NzY=`        | 76 → **0**      |
+| `NjI=`      | 62 → **term**    | `Njk=`        | 69 → **202610** |
+| `Nzc=`      | 77 → **attr**    | `MTc=`        | 17              |
+| `ODM=`      | 83 → **subject** | `MTQ=`        | 14 → **ACCT**   |

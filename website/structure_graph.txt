@@ -1,0 +1,58 @@
+{
+"prereq_tree": <NODE or null>,
+"coreq_tree": <NODE or null>,
+"restrictions": <ARRAY OF STRINGS>
+"title": string,
+"credits": float
+}
+
+prereq_tree: [AND/OR]
+
+AND/OR: AND/OR, COURSE, PlACEMENT, PERMISSION, STANDING, SKILL
+
+
+
+{
+    "raw": "",
+    "kinds": [""],
+    "entities": [""]
+}
+
+{
+    "type": "AND",
+    "children": [
+       
+    ]
+}
+
+
+{
+  "type": "PERMISSION",
+  "raw": "",
+  "permission_kind": "",
+  "authority": "",
+  "action": "",
+  "artifact": [""]
+}
+
+
+Computer Literarcy GER
+
+{
+  "type": "OR",
+  "children": [
+    { "type": "COURSE", "course": "BME 210" },
+    { "type": "COURSE", "course": "BNFO 135" },
+    { "type": "COURSE", "course": "CS 100" },
+    { "type": "COURSE", "course": "CS 101" },
+    { "type": "COURSE", "course": "CS 103" },
+    { "type": "COURSE", "course": "CS 104" },
+    { "type": "COURSE", "course": "CS 106" },
+    { "type": "COURSE", "course": "CS 113" },
+    { "type": "COURSE", "course": "CS 115" },
+    { "type": "COURSE", "course": "DS 100" },
+    { "type": "COURSE", "course": "DS 110" },
+    { "type": "COURSE", "course": "SDET 101" }
+  ]
+}
+Scientific Literacy GER

@@ -1,0 +1,531 @@
+
+[
+  {
+    "ROW_NUMBER": 1,
+    "SUBJECT": "ACCT"
+  },
+  {
+    "ROW_NUMBER": 2,
+    "SUBJECT": "AD"
+  },
+  {
+    "ROW_NUMBER": 3,
+    "SUBJECT": "ARCH"
+  },
+  {
+    "ROW_NUMBER": 4,
+    "SUBJECT": "AS"
+  },
+  {
+    "ROW_NUMBER": 5,
+    "SUBJECT": "BDS"
+  },
+  {
+    "ROW_NUMBER": 6,
+    "SUBJECT": "BIOL"
+  },
+  {
+    "ROW_NUMBER": 7,
+    "SUBJECT": "BME"
+  },
+  {
+    "ROW_NUMBER": 8,
+    "SUBJECT": "BMET"
+  },
+  {
+    "ROW_NUMBER": 9,
+    "SUBJECT": "BNFO"
+  },
+  {
+    "ROW_NUMBER": 10,
+    "SUBJECT": "CE"
+  },
+  {
+    "ROW_NUMBER": 11,
+    "SUBJECT": "CET"
+  },
+  {
+    "ROW_NUMBER": 12,
+    "SUBJECT": "CHE"
+  },
+  {
+    "ROW_NUMBER": 13,
+    "SUBJECT": "CHEM"
+  },
+  {
+    "ROW_NUMBER": 14,
+    "SUBJECT": "CIM"
+  },
+  {
+    "ROW_NUMBER": 15,
+    "SUBJECT": "CMT"
+  },
+  {
+    "ROW_NUMBER": 16,
+    "SUBJECT": "COM"
+  },
+  {
+    "ROW_NUMBER": 17,
+    "SUBJECT": "CS"
+  },
+  {
+    "ROW_NUMBER": 18,
+    "SUBJECT": "DD"
+  },
+  {
+    "ROW_NUMBER": 19,
+    "SUBJECT": "DS"
+  },
+  {
+    "ROW_NUMBER": 20,
+    "SUBJECT": "ECE"
+  },
+  {
+    "ROW_NUMBER": 21,
+    "SUBJECT": "ECET"
+  },
+  {
+    "ROW_NUMBER": 22,
+    "SUBJECT": "ECON"
+  },
+  {
+    "ROW_NUMBER": 23,
+    "SUBJECT": "EM"
+  },
+  {
+    "ROW_NUMBER": 24,
+    "SUBJECT": "ENE"
+  },
+  {
+    "ROW_NUMBER": 25,
+    "SUBJECT": "ENGL"
+  },
+  {
+    "ROW_NUMBER": 26,
+    "SUBJECT": "ENGR"
+  },
+  {
+    "ROW_NUMBER": 27,
+    "SUBJECT": "ENTR"
+  },
+  {
+    "ROW_NUMBER": 28,
+    "SUBJECT": "EPS"
+  },
+  {
+    "ROW_NUMBER": 29,
+    "SUBJECT": "ESC"
+  },
+  {
+    "ROW_NUMBER": 30,
+    "SUBJECT": "ET"
+  },
+  {
+    "ROW_NUMBER": 31,
+    "SUBJECT": "EVSC"
+  },
+  {
+    "ROW_NUMBER": 32,
+    "SUBJECT": "FED"
+  },
+  {
+    "ROW_NUMBER": 33,
+    "SUBJECT": "FIN"
+  },
+  {
+    "ROW_NUMBER": 34,
+    "SUBJECT": "FRSC"
+  },
+  {
+    "ROW_NUMBER": 35,
+    "SUBJECT": "FYS"
+  },
+  {
+    "ROW_NUMBER": 36,
+    "SUBJECT": "GSND"
+  },
+  {
+    "ROW_NUMBER": 37,
+    "SUBJECT": "HIST"
+  },
+  {
+    "ROW_NUMBER": 38,
+    "SUBJECT": "HRM"
+  },
+  {
+    "ROW_NUMBER": 39,
+    "SUBJECT": "HSS"
+  },
+  {
+    "ROW_NUMBER": 40,
+    "SUBJECT": "ID"
+  },
+  {
+    "ROW_NUMBER": 41,
+    "SUBJECT": "IE"
+  },
+  {
+    "ROW_NUMBER": 42,
+    "SUBJECT": "IET"
+  },
+  {
+    "ROW_NUMBER": 43,
+    "SUBJECT": "INT"
+  },
+  {
+    "ROW_NUMBER": 44,
+    "SUBJECT": "INTD"
+  },
+  {
+    "ROW_NUMBER": 45,
+    "SUBJECT": "IS"
+  },
+  {
+    "ROW_NUMBER": 46,
+    "SUBJECT": "IT"
+  },
+  {
+    "ROW_NUMBER": 47,
+    "SUBJECT": "LIT"
+  },
+  {
+    "ROW_NUMBER": 48,
+    "SUBJECT": "MARC"
+  },
+  {
+    "ROW_NUMBER": 49,
+    "SUBJECT": "MATH"
+  },
+  {
+    "ROW_NUMBER": 50,
+    "SUBJECT": "MBGC"
+  },
+  {
+    "ROW_NUMBER": 51,
+    "SUBJECT": "ME"
+  },
+  {
+    "ROW_NUMBER": 52,
+    "SUBJECT": "MECH"
+  },
+  {
+    "ROW_NUMBER": 53,
+    "SUBJECT": "MET"
+  },
+  {
+    "ROW_NUMBER": 54,
+    "SUBJECT": "MGMT"
+  },
+  {
+    "ROW_NUMBER": 55,
+    "SUBJECT": "MIS"
+  },
+  {
+    "ROW_NUMBER": 56,
+    "SUBJECT": "MNE"
+  },
+  {
+    "ROW_NUMBER": 57,
+    "SUBJECT": "MNET"
+  },
+  {
+    "ROW_NUMBER": 58,
+    "SUBJECT": "MR"
+  },
+  {
+    "ROW_NUMBER": 59,
+    "SUBJECT": "MRKT"
+  },
+  {
+    "ROW_NUMBER": 60,
+    "SUBJECT": "MTEN"
+  },
+  {
+    "ROW_NUMBER": 61,
+    "SUBJECT": "MTSE"
+  },
+  {
+    "ROW_NUMBER": 62,
+    "SUBJECT": "NEUR"
+  },
+  {
+    "ROW_NUMBER": 63,
+    "SUBJECT": "OM"
+  },
+  {
+    "ROW_NUMBER": 64,
+    "SUBJECT": "OPSE"
+  },
+  {
+    "ROW_NUMBER": 65,
+    "SUBJECT": "PE"
+  },
+  {
+    "ROW_NUMBER": 66,
+    "SUBJECT": "PHB"
+  },
+  {
+    "ROW_NUMBER": 67,
+    "SUBJECT": "PHEN"
+  },
+  {
+    "ROW_NUMBER": 68,
+    "SUBJECT": "PHIL"
+  },
+  {
+    "ROW_NUMBER": 69,
+    "SUBJECT": "PHPY"
+  },
+  {
+    "ROW_NUMBER": 70,
+    "SUBJECT": "PHYS"
+  },
+  {
+    "ROW_NUMBER": 71,
+    "SUBJECT": "PSY"
+  },
+  {
+    "ROW_NUMBER": 72,
+    "SUBJECT": "PTC"
+  },
+  {
+    "ROW_NUMBER": 73,
+    "SUBJECT": "R010"
+  },
+  {
+    "ROW_NUMBER": 74,
+    "SUBJECT": "R014"
+  },
+  {
+    "ROW_NUMBER": 75,
+    "SUBJECT": "R050"
+  },
+  {
+    "ROW_NUMBER": 76,
+    "SUBJECT": "R070"
+  },
+  {
+    "ROW_NUMBER": 77,
+    "SUBJECT": "R074"
+  },
+  {
+    "ROW_NUMBER": 78,
+    "SUBJECT": "R080"
+  },
+  {
+    "ROW_NUMBER": 79,
+    "SUBJECT": "R082"
+  },
+  {
+    "ROW_NUMBER": 80,
+    "SUBJECT": "R083"
+  },
+  {
+    "ROW_NUMBER": 81,
+    "SUBJECT": "R085"
+  },
+  {
+    "ROW_NUMBER": 82,
+    "SUBJECT": "R086"
+  },
+  {
+    "ROW_NUMBER": 83,
+    "SUBJECT": "R087"
+  },
+  {
+    "ROW_NUMBER": 84,
+    "SUBJECT": "R089"
+  },
+  {
+    "ROW_NUMBER": 85,
+    "SUBJECT": "R120"
+  },
+  {
+    "ROW_NUMBER": 86,
+    "SUBJECT": "R160"
+  },
+  {
+    "ROW_NUMBER": 87,
+    "SUBJECT": "R198"
+  },
+  {
+    "ROW_NUMBER": 88,
+    "SUBJECT": "R200"
+  },
+  {
+    "ROW_NUMBER": 89,
+    "SUBJECT": "R202"
+  },
+  {
+    "ROW_NUMBER": 90,
+    "SUBJECT": "R216"
+  },
+  {
+    "ROW_NUMBER": 91,
+    "SUBJECT": "R220"
+  },
+  {
+    "ROW_NUMBER": 92,
+    "SUBJECT": "R223"
+  },
+  {
+    "ROW_NUMBER": 93,
+    "SUBJECT": "R300"
+  },
+  {
+    "ROW_NUMBER": 94,
+    "SUBJECT": "R350"
+  },
+  {
+    "ROW_NUMBER": 95,
+    "SUBJECT": "R352"
+  },
+  {
+    "ROW_NUMBER": 96,
+    "SUBJECT": "R355"
+  },
+  {
+    "ROW_NUMBER": 97,
+    "SUBJECT": "R373"
+  },
+  {
+    "ROW_NUMBER": 98,
+    "SUBJECT": "R390"
+  },
+  {
+    "ROW_NUMBER": 99,
+    "SUBJECT": "R420"
+  },
+  {
+    "ROW_NUMBER": 100,
+    "SUBJECT": "R460"
+  },
+  {
+    "ROW_NUMBER": 101,
+    "SUBJECT": "R510"
+  },
+  {
+    "ROW_NUMBER": 102,
+    "SUBJECT": "R512"
+  },
+  {
+    "ROW_NUMBER": 103,
+    "SUBJECT": "R553"
+  },
+  {
+    "ROW_NUMBER": 104,
+    "SUBJECT": "R560"
+  },
+  {
+    "ROW_NUMBER": 105,
+    "SUBJECT": "R595"
+  },
+  {
+    "ROW_NUMBER": 106,
+    "SUBJECT": "R620"
+  },
+  {
+    "ROW_NUMBER": 107,
+    "SUBJECT": "R628"
+  },
+  {
+    "ROW_NUMBER": 108,
+    "SUBJECT": "R630"
+  },
+  {
+    "ROW_NUMBER": 109,
+    "SUBJECT": "R640"
+  },
+  {
+    "ROW_NUMBER": 110,
+    "SUBJECT": "R711"
+  },
+  {
+    "ROW_NUMBER": 111,
+    "SUBJECT": "R730"
+  },
+  {
+    "ROW_NUMBER": 112,
+    "SUBJECT": "R750"
+  },
+  {
+    "ROW_NUMBER": 113,
+    "SUBJECT": "R755"
+  },
+  {
+    "ROW_NUMBER": 114,
+    "SUBJECT": "R790"
+  },
+  {
+    "ROW_NUMBER": 115,
+    "SUBJECT": "R799"
+  },
+  {
+    "ROW_NUMBER": 116,
+    "SUBJECT": "R812"
+  },
+  {
+    "ROW_NUMBER": 117,
+    "SUBJECT": "R830"
+  },
+  {
+    "ROW_NUMBER": 118,
+    "SUBJECT": "R834"
+  },
+  {
+    "ROW_NUMBER": 119,
+    "SUBJECT": "R908"
+  },
+  {
+    "ROW_NUMBER": 120,
+    "SUBJECT": "R910"
+  },
+  {
+    "ROW_NUMBER": 121,
+    "SUBJECT": "R920"
+  },
+  {
+    "ROW_NUMBER": 122,
+    "SUBJECT": "R940"
+  },
+  {
+    "ROW_NUMBER": 123,
+    "SUBJECT": "RBHS"
+  },
+  {
+    "ROW_NUMBER": 124,
+    "SUBJECT": "SDET"
+  },
+  {
+    "ROW_NUMBER": 125,
+    "SUBJECT": "SET"
+  },
+  {
+    "ROW_NUMBER": 126,
+    "SUBJECT": "STS"
+  },
+  {
+    "ROW_NUMBER": 127,
+    "SUBJECT": "THTR"
+  },
+  {
+    "ROW_NUMBER": 128,
+    "SUBJECT": "TRAN"
+  },
+  {
+    "ROW_NUMBER": 129,
+    "SUBJECT": "TUTR"
+  },
+  {
+    "ROW_NUMBER": 130,
+    "SUBJECT": "UMD"
+  },
+  {
+    "ROW_NUMBER": 131,
+    "SUBJECT": "USYS"
+  },
+  {
+    "ROW_NUMBER": 132,
+    "SUBJECT": "YWCC"
+  }
+]
