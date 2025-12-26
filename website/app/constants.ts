@@ -12,7 +12,7 @@ export const semesters = {
 export const startTerm = "202610";
 
 export let sectionsData: Record<string, SectionEntries> = {};
-export let currentTermCourses: string[] = [];
+export let currentTermCourses = new Set<string>();
 updateSectionsData(startTerm);
 
 
@@ -199,7 +199,7 @@ export function setCurrentTerm(term: string) {
 export function updateSectionsData(term: string) {
     // Loop through each course in graphData
     sectionsData = {};
-    currentTermCourses = [];
+    currentTermCourses.clear()
     for (const [courseName, courseInfo] of Object.entries(graphData)) {
         if (
             "sections" in courseInfo &&
@@ -207,7 +207,7 @@ export function updateSectionsData(term: string) {
             term in courseInfo.sections
         ) {
             sectionsData[courseName] = courseInfo.sections[term];
-            currentTermCourses.push(courseName);
+            currentTermCourses.add(courseName);
         }
     }
 }

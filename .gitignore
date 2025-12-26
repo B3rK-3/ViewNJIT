@@ -44,4 +44,4 @@ chroma
 website/node_modules
 website/.next
 website/out
-*.json
+*.json  

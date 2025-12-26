@@ -189,7 +189,7 @@ export default function MainSidebar({
             </div>
 
             {/* Legend */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
                 <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
                     Legend
                 </h3>
@@ -204,6 +204,24 @@ export default function MainSidebar({
                         <div className="w-8 h-0.5 bg-sky-500 animate-pulse"></div>
                         <span className="text-sm text-slate-600 dark:text-slate-400">
                             OR connection
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div
+                            className="w-8 h-4 border-2 rounded-sm bg-white dark:bg-slate-900"
+                            style={{ borderColor: "#1ac300ff" }}
+                        ></div>
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                            Offered with selected term
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div
+                            className="w-8 h-4 border-2 rounded-sm bg-white dark:bg-slate-900"
+                            style={{ borderColor: "#ff2929" }}
+                        ></div>
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                            Not offered with selected term
                         </span>
                     </div>
                 </div>

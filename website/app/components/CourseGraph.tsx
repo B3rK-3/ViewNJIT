@@ -17,7 +17,12 @@ import {
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 import "@xyflow/react/dist/style.css";
-import { CourseInfo, CourseStructure, Nodes } from "../constants";
+import {
+    CourseInfo,
+    CourseStructure,
+    currentTermCourses,
+    Nodes,
+} from "../constants";
 
 // Custom node component for courses
 function CourseNode({ data }: NodeProps) {
@@ -163,7 +168,7 @@ interface CourseGraphProps {
     selectedCourse?: string;
     infoCourse?: string;
     visibleCourses: string[];
-    onCourseSelect?: (courseName: string) => void;
+    onCourseSelect: (courseName: string) => void;
 }
 
 export default function CourseGraph({
@@ -206,7 +211,9 @@ export default function CourseGraph({
                         label: courseName,
                         subtitle,
                         background: colors.bg,
-                        borderColor: colors.border,
+                        borderColor: currentTermCourses.has(courseName)
+                            ? "#1ac300ff"
+                            : "#ff2929",
                         textColor: colors.text,
                         isSelected: courseName === infoCourse,
                     },
@@ -479,7 +486,12 @@ export default function CourseGraph({
     const handleNodeClick = useCallback(
         (_event: React.MouseEvent, node: Node) => {
             if (node.type === "course") {
-                onCourseSelect?.(String(node.id));
+                const courseId = String(node.id);
+                if (courseId === infoCourse) {
+                    onCourseSelect("");
+                    return;
+                } 
+                onCourseSelect(String(node.id));
             }
         },
         [onCourseSelect]
