@@ -1,6 +1,6 @@
 import graphDataRaw from "../graph.json";
 
-export const graphData = graphDataRaw as CourseStructure;
+export const graphData = graphDataRaw as unknown as CourseStructure;
 
 export const terms = ["202610", "202595", "202590", "202550", "202510"];
 export const semesters = {
@@ -164,7 +164,7 @@ export interface CourseInfo {
     restrictions: Restriction[];
     desc: string;
     title: string;
-    credits: number | null;
+    credits?: number | null;
     sections?: SectionInfo;
 }
 
