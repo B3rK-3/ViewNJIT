@@ -164,7 +164,7 @@ export interface CourseInfo {
     restrictions: Restriction[];
     desc: string;
     title: string;
-    credits: number;
+    credits: number | null;
     sections?: SectionInfo;
 }
 
