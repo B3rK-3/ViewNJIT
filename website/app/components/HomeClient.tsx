@@ -15,6 +15,7 @@ import {
 import { Span } from "next/dist/trace";
 import MainSidebar from "./MainSidebar";
 import CourseSidebar from "./CourseSidebar";
+import ChatPopup from "./ChatPopup";
 import { graphData } from "../constants";
 
 const MAX_GRAPH_COURSES = 40;
@@ -249,6 +250,9 @@ export default function HomeClient({
                     currentTerm={selectedTerm}
                 />
             </main>
+
+            {/* Chat Popup */}
+            <ChatPopup />
         </div>
     );
 }

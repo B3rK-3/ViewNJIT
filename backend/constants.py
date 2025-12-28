@@ -3,6 +3,10 @@ import os
 from typing import List, Dict, Union, Optional, Literal, Set, Tuple, Any, Annotated
 from pydantic import BaseModel, RootModel, ConfigDict, ValidationError, Field
 import dotenv
+import redis
+import contextvars
+
+
 
 dotenv.load_dotenv("./.env")
 
@@ -13,11 +17,24 @@ CHROMA_DB = os.getenv("CHROMA_DB")
 # paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "../data/graph.json")
+REDIS = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
 
 
 # section entries
 SectionEntries = Tuple[str, str, str, str, str, str, str, str, str, str, str, str, str]
 SectionInfo = Dict[str, SectionEntries]
+
+TERMS = Literal["202610", "202595", "202590", "202550", "202510"]
+
+SEMESTERS = {
+    "10": "Spring",
+    "90": "Fall",
+    "95": "Winter",
+    "50": "Summer",
+}
+
+COLLECTION_NAME = "njit_courses"
 
 PermittedGrades = Literal["A", "B+", "B", "C+", "C", "F"]
 
@@ -182,31 +199,6 @@ class CourseQueryFormat(BaseModel):
     only_prereqs_fulfilled: bool = True
 
 
-CourseQueryJSONformat = {
-    "name": "course_query",
-    "description": "Returns top_n vector search results for a course based on its description and title, given the query parameter",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The description of the course to search for.",
-            },
-            "top_n": {
-                "type": "integer",
-                "description": "This will dictate how many matches are returned in best to worse sorted order. Always to 15 more than what the user wants because the searching is not optimal.",
-                "nullable": True,
-            },
-            "only_prereqs_fulfilled": {
-                "type": "boolean",
-                "description": "This option, when enabled, will only show courses that the user can take (which mean prereqs fulfilled). Default to True unless otherwise stated.",
-            },
-        },
-        "required": ["query", "only_prereqs_fulfilled"],
-    },
-}
-
-
 class UserCourseInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
@@ -226,106 +218,20 @@ class AddUserPrereqsFormat(BaseModel):
     courses: List[UserCourseInfo]
 
 
-AddUserPrereqsJSONformat = {
-    "name": "add_user_prereqs",
-    "description": "Adds the user info (courses, placements, permissions, standing, skill) to user session.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "fulfilled": {
-                "type": "array",
-                "description": "A list of requirements that the user has already fulfilled.",
-                "items": {
-                    "anyOf": [
-                        # 1. COURSE NODE
-                        {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",  # <--- FIX HERE
-                                    "enum": ["COURSE"],  # <--- FIX HERE
-                                },
-                                "course": {"type": "string"},
-                                "min_grade": {"type": "string", "nullable": True},
-                            },
-                            "required": ["type", "course"],
-                        },
-                        # 2. PLACEMENT NODE
-                        {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",  # <--- FIX HERE
-                                    "enum": ["PLACEMENT"],  # <--- FIX HERE
-                                },
-                                "name": {"type": "string"},
-                                "placement_kind": {
-                                    "type": "string",
-                                    "enum": [
-                                        "PLACEMENT_INTO_COURSE",
-                                        "PLACEMENT_ABOVE_COURSE",
-                                        "PLACEMENT_TEST_REQUIRED",
-                                        "SCORE_THRESHOLD",
-                                        "DIAGNOSTIC",
-                                        "UNKNOWN",
-                                    ],
-                                    "nullable": True,
-                                },
-                                # ... (rest of placement fields remain the same)
-                            },
-                            "required": ["type", "name"],
-                        },
-                        # 3. PERMISSION NODE
-                        {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",  # <--- FIX HERE
-                                    "enum": ["PERMISSION"],  # <--- FIX HERE
-                                },
-                                "raw": {"type": "string"},
-                                # ... (rest of permission fields remain the same)
-                            },
-                            "required": ["type", "raw"],
-                        },
-                        # 4. STANDING NODE
-                        {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",  # <--- FIX HERE
-                                    "enum": ["STANDING"],  # <--- FIX HERE
-                                },
-                                "standing": {"type": "string"},
-                                # ... (rest of standing fields remain the same)
-                            },
-                            "required": ["type", "standing"],
-                        },
-                        # 5. SKILL NODE
-                        {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",  # <--- FIX HERE
-                                    "enum": ["SKILL"],  # <--- FIX HERE
-                                },
-                                "name": {"type": "string"},
-                            },
-                            "required": ["type", "name"],
-                        },
-                    ]
-                },
-            },
-        },
-        "required": ["fulfilled"],
-    },
-}
-
-
 class RPCRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     method: str
     params: Dict[str, Any] = {}
+
+
+class ChatRequest(BaseModel):
+    sessionID: str
+    query: str
+    term: TERMS
+
+
+class ChatResponse(BaseModel):
+    response: str
 
 
 # data & state
@@ -348,39 +254,9 @@ except ValidationError as e:
     graph_data = {}
 
 
-TERMS = ["202610", "202595", "202590", "202550", "202510"]
-
-SEMESTERS = {
-    "10": "Spring",
-    "90": "Fall",
-    "95": "Winter",
-    "50": "Summer",
-}
-
-COLLECTION_NAME = "njit_courses"
-
 # global state
 sections_data: Dict[str, SectionEntries] = {}
 current_term_courses: Set[str] = set()
 CHAT_N = 5
-
-
-def update_sections_data(term: str) -> None:
-    """
-    updates sections_data based on the provided term.
-    """
-    global sections_data, current_term_courses
-    sections_data.clear()
-    current_term_courses.clear()
-
-    for course_name, course_info in graph_data.items():
-        if "sections" in course_info and term in course_info.sections:
-            sections_data[course_name] = course_info["sections"][term]
-            current_term_courses.add(course_name)
-
-
-def set_current_term(term: str) -> None:
-    """
-    sets the current term and updates sections_data.
-    """
-    update_sections_data(term)
+current_session_id = contextvars.ContextVar('current_session_id', default=None)
+current_session_prereqs = contextvars.ContextVar[UserFulfilled]('current_session_prereqs', default=UserFulfilled(courses={}))

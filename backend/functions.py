@@ -1,3 +1,6 @@
+from constants import current_session_prereqs
+from constants import current_session_id
+from constants import REDIS
 from constants import (
     CourseQueryFormat,
     RPCRequest,
@@ -22,7 +25,7 @@ from google import genai
 from google.genai import types
 import json
 
-user_prereqs: UserFulfilled = UserFulfilled(courses={})
+
 # use cuda
 ef = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="all-MiniLM-L6-v2",
@@ -33,11 +36,7 @@ ef = embedding_functions.SentenceTransformerEmbeddingFunction(
 cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device="cuda")
 
 # global chromadb client
-chroma_client = chromadb.CloudClient(
-    api_key=CHROMA_KEY,
-    tenant=CHROMA_TENANT,
-    database=CHROMA_DB,
-)
+chroma_client = chromadb.PersistentClient(path="./chromadb")
 
 # global chromadb collection
 collection = chroma_client.get_or_create_collection(
@@ -160,13 +159,17 @@ def course_query(args: CourseQueryFormat) -> List[Dict[str, Any]]:
     query_text = args.query
     n = args.top_n
 
+    # Fetch significantly more candidates for the cross-encoder to re-rank
+    # This ensures we don't miss relevant items that have lower vector scores
+    fetch_k = 3000
+
     try:
         if args.only_prereqs_fulfilled:
             results = collection.query(
-                ids=get_available_courses(), query_texts=[query_text], n_results=n
+                ids=get_available_courses(), query_texts=[query_text], n_results=fetch_k
             )
         else:
-            results = collection.query(query_texts=[query_text], n_results=n)
+            results = collection.query(query_texts=[query_text], n_results=fetch_k)
 
         if not results["ids"]:
             return []
@@ -202,7 +205,10 @@ def course_query(args: CourseQueryFormat) -> List[Dict[str, Any]]:
             # sort by score descending
             flat_results.sort(key=lambda x: x["score"], reverse=True)
         print("DEBUG:", len(flat_results), "courses returned")
-        return flat_results
+        print("DEBUG:", [(each['id'], each['score'], each['init_distance'])  for each in flat_results])
+
+        # Return only the top N requested results
+        return flat_results[:n]
 
     except Exception as e:
         print("Error querying ChromaDB:", e)
@@ -216,9 +222,11 @@ def update_user_prereqs(args: AddUserPrereqsFormat):
     Returns:
         All use fullfilments after current update
     """
+    user_prereqs = current_session_prereqs.get()
     print("DEBUG:", args.model_dump())
     for course in args.courses:
         user_prereqs.courses[course.name] = course
+    current_session_prereqs.set(user_prereqs)
     return user_prereqs.model_dump()
 
 
@@ -242,7 +250,7 @@ def is_grade_sufficient(user_grade: str, min_grade: Optional[str]) -> bool:
     return val_user >= val_min
 
 
-def check_prereq_tree(node: Any) -> bool:
+def check_prereq_tree(node: Any, user_prereqs: UserFulfilled) -> bool:
     """
     Recursively checks if a prereq tree node is satisfied by user_prereqs.
     Only considers CourseNodeModel; returns False for other types for now.
@@ -261,13 +269,13 @@ def check_prereq_tree(node: Any) -> bool:
         # All children must be satisfied
         if not node.children:
             return True
-        return all(check_prereq_tree(child) for child in node.children)
+        return all(check_prereq_tree(child, user_prereqs) for child in node.children)
 
     elif node_type == "OR":
         # At least one child satisfied
         if not node.children:
             return True  # Empty OR? Usually implies nothing needed? Or failure? Assume True if empty list (trivial)
-        return any(check_prereq_tree(child) for child in node.children)
+        return any(check_prereq_tree(child, user_prereqs) for child in node.children)
 
     elif node_type == "COURSE":
         # Check against global user_prereqs
@@ -276,6 +284,9 @@ def check_prereq_tree(node: Any) -> bool:
             u_info = user_prereqs.courses[c_name]
             return is_grade_sufficient(u_info.grade, node.min_grade)
         return False
+    
+    elif node_type == 'SKILL':
+        return True
 
     # Other types (PLACEMENT, PERMISSION, etc.) ignored as per instruction
     return False
@@ -286,54 +297,106 @@ def get_available_courses() -> List[str]:
     Returns all course_names from graph_data where prereq_tree is satisfied.
     """
     satisfied_courses = []
+    user_prereqs = current_session_prereqs.get()
 
     for course_id, info in graph_data.items():
         if course_id in user_prereqs.courses.keys():
             continue
-        if check_prereq_tree(info.prereq_tree):
+        if check_prereq_tree(info.prereq_tree, user_prereqs):
             satisfied_courses.append(course_id)
-
+    print(satisfied_courses)
     return satisfied_courses
 
 
-def gemini_call():
+def dump_history(history):
+    clean_history = []
+
+    for h in history:
+        # Convert the Content object to a dictionary
+        data = h.model_dump(exclude_none=True)
+
+        # Iterate through parts to remove 'thought' and 'thought_signature'
+        if "parts" in data:
+            for part in data["parts"]:
+                # safely remove these keys if they exist
+                part.pop("thought", None)
+                part.pop("thought_signature", None)
+
+        clean_history.append(data)
+
+    return json.dumps(clean_history)
+
+
+def load_history(history_str: str) -> List[types.Content]:
+    """
+    Loads a JSON string back into a list of Gemini Content objects.
+    """
+    if not history_str:
+        return []
+    try:
+        data = json.loads(history_str)
+        return [types.Content.model_validate(h) for h in data]
+    except Exception as e:
+        print(f"Error loading history: {e}")
+        return []
+
+
+def dump_prereqs(prereqs: UserFulfilled) -> str:
+    """
+    Converts a UserFulfilled object to a JSON string.
+    """
+    return prereqs.model_dump_json()
+
+
+def load_prereqs(prereqs_str: str) -> UserFulfilled:
+    """
+    Loads a JSON string back into a UserFulfilled object.
+    """
+    if not prereqs_str:
+        return UserFulfilled(courses={})
+    try:
+        return UserFulfilled.model_validate_json(prereqs_str)
+    except Exception as e:
+        print(f"Error loading prereqs: {e}")
+        return UserFulfilled(courses={})
+
+
+def gemini_call(input_text: str):
     client = genai.Client()
-    config = types.GenerateContentConfig(tools=[update_user_prereqs, course_query])
-    history: List[types.Content] = []
 
-    # We'll use a loop to handle the initial inquiry and subsequent turns
-    first_input = input("User: ").strip()
-    current_input = first_input
+    session_id = current_session_id.get()
+    history_raw = REDIS.get(f"{session_id}:history")
+    prereqs_raw = REDIS.get(f"{session_id}:prereqs") or '{"courses": {}}'
+    history = load_history(history_raw)
+    current_session_prereqs.set(load_prereqs(prereqs_raw))
+    print(prereqs_raw)
+    # print(history)
 
-    while current_input:
-        # Include current data status in each user message to keep AI informed
-        payload = {
-            "user_prereqs": user_prereqs.model_dump(),
-        }
-        prompt = f"{current_input}\n\nUSER_DATA_JSON:\n{json.dumps(payload)}"
+    sys_instruction = f"""User's current profile: {prereqs_raw}. Use tools to update courses, but you can remember other context from the conversation. 
+    INFO:
+    - a pass in a class is the grade 'C'.
+    """
 
-        # Add to history
-        history.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
+    chat = client.chats.create(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=sys_instruction,
+            tools=[update_user_prereqs, course_query],
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=False
+            ),
+        ),
+        history=history,
+    )
 
-        # Limit history to past CHAT_N messages
-        if len(history) > CHAT_N:
-            history = history[-CHAT_N:]
+    response = chat.send_message(input_text)
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=history,
-            config=config,
-        )
+    if response.text:
+        print(f"Assistant: {response.text}")
 
-        if response.text:
-            print(f"Assistant: {response.text}")
-            # Add model response to history
-            history.append(response.candidates[0].content)
-        print()
-
-        current_input = input("User: ").strip()
-        if not current_input:
-            break
+    REDIS.set(f"{session_id}:history", dump_history(chat._curated_history))
+    REDIS.set(f"{session_id}:prereqs", dump_prereqs(current_session_prereqs.get()))
+    return response.text
 
 
 """

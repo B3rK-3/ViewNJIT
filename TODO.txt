@@ -6,3 +6,4 @@
 - solidifiy plans on querying classes and prereqs
 
 - add a sepearet graph page to the website that allows users to add courses and export professor ratings and prereqs
+- make equivalence node and clean up grahp.json

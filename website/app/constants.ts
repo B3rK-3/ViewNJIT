@@ -1,6 +1,14 @@
+import {
+    CookieValueTypes,
+    getCookie,
+    hasCookie,
+    setCookie,
+} from "cookies-next";
 import graphDataRaw from "../graph.json";
+import { randomUUID } from "crypto";
 
 export const graphData = graphDataRaw as unknown as CourseStructure;
+const sessionUUID = await getSessionUUID()
 
 export const terms = ["202610", "202595", "202590", "202550", "202510"];
 export const semesters = {
@@ -14,7 +22,6 @@ export const startTerm = "202610";
 export let sectionsData: Record<string, SectionEntries> = {};
 export let currentTermCourses = new Set<string>();
 updateSectionsData(startTerm);
-
 
 export type SectionTuple = [
     string, // 0: Section Number
@@ -201,7 +208,7 @@ export function setCurrentTerm(term: string) {
 export function updateSectionsData(term: string) {
     // Loop through each course in graphData
     sectionsData = {};
-    currentTermCourses.clear()
+    currentTermCourses.clear();
     for (const [courseName, courseInfo] of Object.entries(graphData)) {
         if (
             "sections" in courseInfo &&
@@ -211,5 +218,17 @@ export function updateSectionsData(term: string) {
             sectionsData[courseName] = courseInfo.sections[term];
             currentTermCourses.add(courseName);
         }
+    }
+}
+
+export async function getSessionUUID(): Promise<string | undefined> {
+    const cookieUUIDkey = "uuidv4";
+
+    if (!hasCookie(cookieUUIDkey)) {
+        const userUUID = randomUUID();
+        await setCookie(cookieUUIDkey, userUUID, { maxAge: 9999 });
+        return userUUID;
+    } else {
+        return await getCookie(cookieUUIDkey);
     }
 }
