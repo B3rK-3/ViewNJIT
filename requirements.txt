@@ -1,0 +1,9 @@
+chromadb
+sentence-transformers
+google-genai
+openai
+pydantic
+python-dotenv
+requests
+beautifulsoup4
+torch
