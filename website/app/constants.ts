@@ -232,7 +232,7 @@ export async function getSessionUUID(): Promise<string | undefined> {
         sessionUUID = UUID;
     } else {
         sessionUUID = uuidv4();
-        setCookie(cookieUUIDkey, sessionUUID, { maxAge: 9999 });
+        setCookie(cookieUUIDkey, sessionUUID, { maxAge: 22464000 });
     }
     
     return sessionUUID;

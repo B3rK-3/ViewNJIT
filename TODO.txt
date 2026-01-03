@@ -7,3 +7,7 @@
 
 - add a sepearet graph page to the website that allows users to add courses and export professor ratings and prereqs
 - make equivalence node and clean up grahp.json
+
+
+fix hallucinations with empty description in graph data
+update frontend to use the lecturer.json instead of fetching again from proxy

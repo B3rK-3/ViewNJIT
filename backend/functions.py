@@ -1,22 +1,24 @@
-from constants import CourseSearchFormat
-from constants import VALID_COURSES
-from constants import STANDINGS
-from constants import current_session_prereqs
-from constants import current_session_id
-from constants import REDIS
-from constants import (
+from backend.constants import CHATBOT_PROMPT_FILE
+from backend.constants import term_courses
+from backend.constants import TERMS
+from backend.constants import (
     CourseQueryFormat,
     RPCRequest,
-    graph_data,
+    course_data,
     COLLECTION_NAME,
     CourseMetadata,
     GEMINI_API_KEY,
     UserFulfilled,
     CHAT_N,
-    AddUserPrereqsFormat,
+    UpdateUserProfile,
     CHROMA_KEY,
     CHROMA_TENANT,
     CHROMA_DB,
+    REDIS,
+    STANDINGS,
+    VALID_COURSES,
+    CourseSearchFormat,
+    MakeScheduleFormat,
 )
 import hashlib
 import chromadb
@@ -27,20 +29,21 @@ import time
 from google import genai
 from google.genai import types
 import json
+from torch.cuda import is_available
+import itertools
 
 
-
+device = "cpu"
+if is_available:
+    device = "cuda"
 ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2", device="cpu"
+    model_name="all-MiniLM-L6-v2", device=device
 )
 
-# global cross encoder
-cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device="cpu")
+cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=device)
 
-# global chromadb client
 chroma_client = chromadb.PersistentClient(path="./chromadb")
 
-# global chromadb collection
 collection = chroma_client.get_or_create_collection(
     name=COLLECTION_NAME, embedding_function=ef
 )
@@ -150,7 +153,7 @@ def initialize_database() -> None:
 
     print("Checking for updates in graph data...")
 
-    for course_id, info in graph_data.items():
+    for course_id, info in course_data.items():
         title = info.title
         description = info.desc
 
@@ -185,7 +188,7 @@ def initialize_database() -> None:
             collection.upsert(
                 ids=ids_to_upsert,
                 documents=documents_to_upsert,
-                metadatas=metadatas_to_upsert,  # type: ignore
+                metadatas=metadatas_to_upsert,
             )
             print(f"Upserted {len(ids_to_upsert)} courses...")
             ids_to_upsert = []
@@ -202,169 +205,6 @@ def initialize_database() -> None:
         print(f"Final update for {len(ids_to_upsert)} courses complete.")
 
     print("Database synchronization complete.")
-
-
-def course_query(args: CourseQueryFormat) -> List[Dict[str, Any]]:
-    """
-    queries the course database for semantic similarities.
-    Re-rank the provided list of courses based on relevance to the query.
-
-    IMPORTANT RULES:
-    - You MUST return ALL provided courses.
-    - You MUST NOT remove, filter, or omit any course.
-    - You MUST NOT add new courses.
-    - You MUST only reorder the existing list.
-    - If uncertain, preserve the original order.
-
-    Returns:
-        Top_n matching courses based on query and only_prereqs_fulfilled.
-    """
-    print("DEBUG:", args.model_dump())
-    query_text = args.query
-    n = args.top_n
-
-    # Fetch significantly more candidates for the cross-encoder to re-rank
-    # This ensures we don't miss relevant items that have lower vector scores
-    fetch_k = 3000
-
-    try:
-        if args.only_prereqs_fulfilled:
-            results = collection.query(
-                ids=get_available_courses(), query_texts=[query_text], n_results=fetch_k
-            )
-        else:
-            results = collection.query(query_texts=[query_text], n_results=fetch_k)
-
-        if not results["ids"]:
-            return []
-
-        flat_results: List[Dict[str, Any]] = []
-        ids_list = results["ids"][0]
-        distances_list = (
-            results["distances"][0] if results["distances"] else [None] * len(ids_list)
-        )
-        metadatas_list = (
-            results["metadatas"][0] if results["metadatas"] else [None] * len(ids_list)
-        )
-        documents_list = (
-            results["documents"][0] if results["documents"] else [None] * len(ids_list)
-        )
-
-        for i, cid in enumerate(ids_list):
-            flat_results.append(
-                {
-                    "id": cid,
-                    "document": documents_list[i],
-                    "init_distance": distances_list[i],
-                }
-            )
-
-        # rerank with cross encoder
-        if flat_results:
-            pairs = [[query_text, item["document"]] for item in flat_results]
-            scores = cross_encoder.predict(pairs)
-            for i, item in enumerate(flat_results):
-                item["score"] = float(scores[i])
-
-            # sort by score descending
-            flat_results.sort(key=lambda x: x["score"], reverse=True)
-        print("DEBUG:", len(flat_results), "courses returned")
-        print(
-            "DEBUG:",
-            [
-                (each["id"], each["score"], each["init_distance"])
-                for each in flat_results
-            ],
-        )
-
-        # Return only the top N requested results
-        return flat_results[:n]
-
-    except Exception as e:
-        print("Error querying ChromaDB:", e)
-        return []
-
-
-def update_user_prereqs(args: AddUserPrereqsFormat):
-    """
-    Adds or updates the user courses for later filtering.
-
-    Args:
-        ["courses": {"name": "course name", "grade": ""Grade recieved in course. A pass is a 'C'. Example: 'I passed a class', then grade = 'C'."},
-        "equivalents": "List of courses that the user has equivalents for. Example: (equivalents for CS 350).",
-        "standing": "User's academic standing (FRESHMAN, SOPHOMORE, JUNIOR, SENIOR, GRAD).",
-        "semesters_left": "Number of semesters remaining until graduation."]
-
-    Returns:
-        All use fullfilments after current update
-    """
-    user_prereqs = current_session_prereqs.get()
-    print("DEBUG:", args.model_dump())
-    for course in args.courses:
-        res = normalize_course(course.name)
-        if isinstance(res, dict):
-            return res
-        course.name = res
-        user_prereqs.courses[course.name] = course
-
-    for eq in args.equivalents:
-        res = normalize_course(eq)
-        if isinstance(res, dict):
-            return res
-        user_prereqs.equivalents.append(res)
-
-    if args.standing:
-        user_prereqs.standing = args.standing
-    if args.semesters_left:
-        user_prereqs.semesters_left = args.semesters_left
-
-    current_session_prereqs.set(user_prereqs)
-
-    return user_prereqs.model_dump()
-
-
-def get_course_description(args: CourseSearchFormat) -> str:
-    """
-    Get course description by course name.
-
-    Args:
-        {"course_name": "Name of the course to search for."}
-
-    Returns:
-        description of the course
-    """
-    print("DEBUG:", args.model_dump())
-    res = normalize_course(args.course_name)
-    if isinstance(res, dict):
-        return res
-    course_name = res
-
-    return graph_data[course_name].desc
-
-
-def can_take_course(args: CourseSearchFormat) -> bool | str:
-    """
-       Check if user can take a course.
-
-    Args:
-        {"course_name": "Name of the course to search for."}
-
-    Returns:
-        True or explanation of why user can't take it
-    """
-    print("DEBUG:", args.model_dump())
-    res = normalize_course(args.course_name)
-    if isinstance(res, dict):
-        return res
-    course_name = res
-
-    user_prereqs = current_session_prereqs.get()
-
-    if course_name in user_prereqs.courses:
-        return f"You have already completed or are currently taking {course_name}."
-
-    course_info = graph_data[course_name]
-    return check_prereq_tree(course_info.prereq_tree, user_prereqs)
 
 
 def is_grade_sufficient(user_grade: str, min_grade: Optional[str]) -> bool:
@@ -456,7 +296,6 @@ def check_prereq_tree(node: Any, user_prereqs: UserFulfilled) -> bool | str:
         if user_index < req_index:
             return f"Standing is {user_standing}, but {required_standing} or higher is required."
 
-        # Optional: check semesters_left if provided in node and user_prereqs
         if node.semesters_left is not None:
             if user_prereqs.semesters_left is None:
                 return (
@@ -467,25 +306,452 @@ def check_prereq_tree(node: Any, user_prereqs: UserFulfilled) -> bool | str:
 
         return True
 
-    # PLACEMENT, PERMISSION or unknown
     name = getattr(node, "name", getattr(node, "raw", node_type))
     return f"Special requirement needed: {node_type} ({name})"
 
 
-def get_available_courses() -> List[str]:
+def get_available_courses(
+    user_prereqs: UserFulfilled,
+    only_prereqs_fulfilled: bool,
+    only_current_term: bool,
+    term: str,
+) -> List[str]:
     """
-    Returns all course_names from graph_data where prereq_tree is satisfied.
+    Returns all course_names from course_data where prereq_tree is satisfied.
     """
-    satisfied_courses = []
-    user_prereqs = current_session_prereqs.get()
+    if only_current_term:
+        course_names = term_courses[term]
+    else:
+        course_names = list(course_data.keys())
 
-    for course_id, info in graph_data.items():
-        if course_id in user_prereqs.courses.keys():
+    if only_prereqs_fulfilled:
+        satisfied_courses = []
+
+        for course_name in course_names:
+            if course_name in user_prereqs.courses.keys():
+                continue
+
+            if (
+                check_prereq_tree(course_data[course_name].prereq_tree, user_prereqs)
+                is True
+            ):
+                satisfied_courses.append(course_name)
+        return satisfied_courses
+    else:
+        return course_names
+
+
+def parse_time_str(time_str: str) -> Tuple[int, int]:
+    """Parse time string like '11:30 AM - 12:50 PM' into (start_minutes, end_minutes)."""
+    try:
+        parts = time_str.strip().split(" - ")
+        if len(parts) != 2:
+            return None
+
+        start_str, end_str = parts
+
+        def time_to_minutes(t: str) -> int:
+            t = t.strip()
+            time_part, period = t.rsplit(" ", 1)
+            hour, minute = map(int, time_part.split(":"))
+
+            if period == "PM" and hour != 12:
+                hour += 12
+            elif period == "AM" and hour == 12:
+                hour = 0
+
+            return hour * 60 + minute
+
+        return (time_to_minutes(start_str), time_to_minutes(end_str))
+    except Exception:
+        return None
+
+
+def parse_section_times(
+    times_str: str, days_str: str
+) -> Dict[str, List[Tuple[int, int]]]:
+    """Map times to days. Returns dict of day -> [(start, end), ...]."""
+    if not times_str or not days_str:
+        return {}
+
+    day_to_times = {}
+    time_slots = [slot.strip() for slot in times_str.split(",")]
+
+    # If single time slot, apply to all days
+    if len(time_slots) == 1:
+        parsed = parse_time_str(time_slots[0])
+        if parsed:
+            for day in days_str:
+                day_to_times[day] = [parsed]
+    else:
+        # Multiple time slots - map to days in order
+        for i, day in enumerate(days_str):
+            if i < len(time_slots):
+                parsed = parse_time_str(time_slots[i])
+                if parsed:
+                    day_to_times[day] = [parsed]
+
+    return day_to_times
+
+
+def has_time_conflict(section1_times: Dict, section2_times: Dict) -> bool:
+    """Check if two sections have overlapping times on any shared day."""
+    for day in section1_times:
+        if day not in section2_times:
             continue
-        if check_prereq_tree(info.prereq_tree, user_prereqs) is True:
-            satisfied_courses.append(course_id)
-    print(satisfied_courses)
-    return satisfied_courses
+
+        # Check all time slot pairs for this day
+        for start1, end1 in section1_times[day]:
+            for start2, end2 in section2_times[day]:
+                # Check for overlap: ranges overlap if start1 < end2 and start2 < end1
+                if start1 < end2 and start2 < end1:
+                    return True
+
+    return False
+
+
+def get_tools(user_prereqs: UserFulfilled, term: TERMS):
+    def course_query(args: CourseQueryFormat) -> List[Dict[str, Any]]:
+        """
+        Queries the course database for semantic similarities.
+
+        Args:
+            {
+            "query": "Natural language description of the course(s) the user is searching for.",
+            "top_n": "Maximum number of courses to return, ordered by relevance.",
+            "only_prereqs_fulfilled": "If true, returns only courses for which the user satisfies all prerequisites. If false, returns all relevant courses regardless of prerequisites.",
+            "only_current_semester": "If true, only looks at courses offered in current semester. If false, looks at all courses."
+            }
+
+        Returns:
+            Top_n matching courses based on query and only_prereqs_fulfilled.
+        """
+        print("DEBUG:", args.model_dump())
+        query_text = args.query
+        n = args.top_n
+
+        # Fetch significantly more candidates for the cross-encoder to re-rank
+        # This ensures we don't miss relevant items that have lower vector scores
+        fetch_k = 500
+
+        try:
+            results = collection.query(
+                ids=get_available_courses(
+                    user_prereqs,
+                    args.only_prereqs_fulfilled,
+                    args.only_current_semester,
+                    term,
+                ),
+                query_texts=[query_text],
+                n_results=fetch_k,
+            )
+
+            if not results["ids"]:
+                return []
+
+            flat_results: List[Dict[str, Any]] = []
+            ids_list = results["ids"][0]
+            distances_list = (
+                results["distances"][0]
+                if results["distances"]
+                else [None] * len(ids_list)
+            )
+            metadatas_list = (
+                results["metadatas"][0]
+                if results["metadatas"]
+                else [None] * len(ids_list)
+            )
+            documents_list = (
+                results["documents"][0]
+                if results["documents"]
+                else [None] * len(ids_list)
+            )
+
+            for i, cid in enumerate(ids_list):
+                flat_results.append(
+                    {
+                        "id": cid,
+                        "document": documents_list[i],
+                        "init_distance": distances_list[i],
+                    }
+                )
+
+            # rerank with cross encoder
+            if flat_results:
+                pairs = [[query_text, item["document"]] for item in flat_results]
+                scores = cross_encoder.predict(pairs)
+                for i, item in enumerate(flat_results):
+                    item["score"] = float(scores[i])
+
+                flat_results.sort(key=lambda x: x["score"], reverse=True)
+
+            return {
+                "search_result": flat_results[:n],
+                "message_to_relay_to_user": "Configuration: Results restricted to current term."
+                if args.only_current_semester
+                else "Configuration: Results not restricted to current term.",
+            }
+
+        except Exception as e:
+            print("Error querying ChromaDB:", e)
+            return []
+
+    def update_user_profile(args: UpdateUserProfile):
+        """
+        Updates the user profile.
+
+        Args:
+            {
+            "courses": {
+                        "name": "course name", "grade": ""Grade recieved in course. A pass is a 'C'. Example: 'I passed a class', then grade = 'C'."
+                        },
+            "equivalents": "List of courses that the user has equivalents for. Example: (equivalents for CS 350).",
+            "standing": "User's academic standing (FRESHMAN, SOPHOMORE, JUNIOR, SENIOR, GRAD).",
+            "semesters_left": "Number of semesters remaining until graduation.",
+            "to_remove": {
+                        "courses": "List of courses to remove.",
+                        "equivalents": "List of courses equivalents to remove.",
+                        "remove_standing": "Whether to remove standing from profile.",
+                        "remove_semesters_left": "Whether to remove semesters_left from profile."
+                        }
+            }
+
+        Returns:
+            All user fullfilments after current update and errors if any.
+        """
+        print("DEBUG:", args.model_dump())
+        errors = []
+        for course in args.courses:
+            course_name = normalize_course(course.name)
+            # TODO: make it so that the valid ones are added.
+            if isinstance(course_name, dict):
+                errors.append(course_name)
+                continue
+            user_prereqs.courses[course_name] = course
+
+        for eq in args.equivalents:
+            course_name = normalize_course(eq)
+            if isinstance(course_name, dict):
+                errors.append(course_name)
+                continue
+            user_prereqs.equivalents.append(course_name)
+
+        if args.standing:
+            user_prereqs.standing = args.standing
+        if args.semesters_left:
+            user_prereqs.semesters_left = args.semesters_left
+
+        to_remove = args.to_remove
+        if to_remove:
+            for course in to_remove.courses:
+                if course in user_prereqs.courses.keys():
+                    del user_prereqs.courses[course]
+                else:
+                    errors.append(
+                        {"error_message": f"{course} was not found in user courses!"}
+                    )
+
+            for equivalent in to_remove.equivalents:
+                if equivalent in user_prereqs.equivalents:
+                    user_prereqs.equivalents.remove(equivalent)
+                else:
+                    errors.append(
+                        {
+                            "error_message": f"{course} was not found in user equivalents!"
+                        }
+                    )
+
+            if to_remove.standing:
+                user_prereqs.standing = None
+
+            if to_remove.semesters_left:
+                user_prereqs.semesters_left = None
+
+        return user_prereqs.model_dump()
+
+    def get_course_description(args: CourseSearchFormat) -> str:
+        """
+        Gets the course description of a course.
+
+        Args:
+            {
+            "course_name": "Name of the course to search for."
+            }
+
+        Returns:
+            description of the course
+        """
+        print("DEBUG:", args.model_dump())
+        res = normalize_course(args.course_name)
+        if isinstance(res, dict):
+            return res
+        course_name = res
+
+        return course_data[course_name].desc
+
+    def can_take_course(args: CourseSearchFormat) -> bool | str:
+        """
+        Checks if user can take a course.
+
+        Args:
+            {
+            "course_name": "Name of the course to search for."
+            }
+
+        Returns:
+            True or explanation of why user can't take it
+        """
+        print("DEBUG:", args.model_dump())
+        res = normalize_course(args.course_name)
+        if isinstance(res, dict):
+            return res
+        course_name = res
+
+        if course_name in user_prereqs.courses:
+            return f"You have already completed or are currently taking {course_name}."
+
+        course_info = course_data[course_name]
+        return check_prereq_tree(course_info.prereq_tree, user_prereqs)
+
+    def make_schedule(args: MakeScheduleFormat) -> Dict[str, Any]:
+        """
+        Generates all possible schedules for the given courses that fit within the max_days constraint.
+
+        Args:
+            {
+            "courses": "List of course names to include in the schedule.",
+            "max_days": "Maximum number of days per week the user wants to attend classes (1-5)."
+            }
+
+        Returns:
+            A list of valid schedules (each is a list of section selections) and any errors encountered.
+        """
+
+        print("DEBUG:", args.model_dump())
+        errors = []
+        valid_courses = []
+
+        for course_name in args.courses:
+            normalized = normalize_course(course_name)
+            if isinstance(normalized, dict):
+                errors.append(normalized)
+            else:
+                valid_courses.append(normalized)
+
+        if not valid_courses:
+            return {
+                "errors": errors,
+                "schedules": [],
+                "message": "No valid courses provided.",
+            }
+
+        course_sections_list = []
+        for course_name in valid_courses:
+            course_info = course_data[course_name]
+            if not course_info:
+                errors.append(
+                    {"error_message": f"Course data not found for {course_name}"}
+                )
+                continue
+
+            term_sections = course_info.sections.get(term)
+            if not term_sections:
+                errors.append(
+                    {
+                        "error_message": f"No sections available for {course_name} in term {term}"
+                    }
+                )
+                continue
+
+            sections_for_course = []
+            for section_id, section_data in term_sections.items():
+                days = section_data[2]
+                times = section_data[3]
+
+                section_info = {
+                    "course": course_name,
+                    "section_id": section_id,
+                    "days": days,
+                    "crn": section_data[1],
+                    "times": times,
+                    "location": section_data[4],
+                    "instructor": section_data[8],
+                }
+
+                # Parse and store time mappings
+                section_info["parsed_times"] = parse_section_times(times, days)
+                sections_for_course.append(section_info)
+
+            if sections_for_course:
+                course_sections_list.append(sections_for_course)
+            else:
+                errors.append(
+                    {"error_message": f"No sections with day info for {course_name}"}
+                )
+
+        if not course_sections_list:
+            return {
+                "errors": errors,
+                "schedules": [],
+                "message": "No sections available for any valid course.",
+            }
+
+        all_combinations = list(itertools.product(*course_sections_list))
+
+        valid_schedules = []
+        for combo in all_combinations:
+            unique_days = set()
+            for section in combo:
+                for day_char in section["days"]:
+                    unique_days.add(day_char)
+
+            # Check day constraint
+            if len(unique_days) > args.max_days:
+                continue
+
+            # Check for time conflicts
+            has_conflict = False
+            for i in range(len(combo)):
+                for j in range(i + 1, len(combo)):
+                    if has_time_conflict(
+                        combo[i]["parsed_times"], combo[j]["parsed_times"]
+                    ):
+                        has_conflict = True
+                        break
+                if has_conflict:
+                    break
+
+            if not has_conflict:
+                # Remove parsed_times from output (internal use only)
+                clean_sections = []
+                for section in combo:
+                    clean_section = {
+                        k: v for k, v in section.items() if k != "parsed_times"
+                    }
+                    clean_sections.append(clean_section)
+
+                valid_schedules.append(
+                    {
+                        "sections": clean_sections,
+                        "days_used": sorted(list(unique_days)),
+                        "num_days": len(unique_days),
+                    }
+                )
+
+        return {
+            "errors": errors if errors else None,
+            "schedules": valid_schedules,
+            "total_valid_schedules": len(valid_schedules),
+            "message": f"Found {len(valid_schedules)} schedule(s) fitting within {args.max_days} day(s) with no time conflicts.",
+        }
+
+    return [
+        course_query,
+        update_user_profile,
+        get_course_description,
+        can_take_course,
+        make_schedule,
+    ]
 
 
 def dump_history(history):
@@ -541,40 +807,26 @@ def load_prereqs(prereqs_str: str) -> UserFulfilled:
         return UserFulfilled(courses={})
 
 
-def gemini_call(input_text: str):
+def gemini_call(input_text: str, session_id: str, term: TERMS):
     client = genai.Client()
 
-    session_id = current_session_id.get()
     history_raw = REDIS.get(f"{session_id}:history")
     prereqs_raw = REDIS.get(f"{session_id}:prereqs")
     history = load_history(history_raw)
-    current_session_prereqs.set(load_prereqs(prereqs_raw))
-    print(prereqs_raw)
-    # print(history)
+    parsed_userprereqs = load_prereqs(prereqs_raw)
+    tools = get_tools(parsed_userprereqs, term)
 
-    sys_instruction = f"""User's current profile: {prereqs_raw}. Use tools to update courses, but you can remember other context from the conversation. 
-    
-    ONLY FOR CALLING update_user_prereqs LOOK AT THESE:
-        If user tries to add a placement exam or permission:
-            remind that those features are not implemented yet and its best to manually check
-        If user tries to add equivalents:
-            remind that they should confirm with registrar
-
-    ONLY AFTER CALLING update_user_prereqs LOOK AT THESE:
-        If user does not have standing or semesters left in profile:
-            remind that adding those could provide more accurate search
-    """
+    # move to constants as global var
+    with open(CHATBOT_PROMPT_FILE, "r", encoding="utf-8") as f:
+        prompt = f.read()
+        
+    sys_instruction = f"User's current profile: {prereqs_raw}." + prompt
 
     chat = client.chats.create(
         model="gemini-2.5-flash",
         config=types.GenerateContentConfig(
             system_instruction=sys_instruction,
-            tools=[
-                update_user_prereqs,
-                course_query,
-                get_course_description,
-                can_take_course,
-            ],
+            tools=tools,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(
                 disable=False
             ),
@@ -584,108 +836,6 @@ def gemini_call(input_text: str):
 
     response = chat.send_message(input_text)
 
-    if response.text:
-        print(f"Assistant: {response.text}")
-
-    print(chat._curated_history)
     REDIS.set(f"{session_id}:history", dump_history(chat._curated_history))
-    REDIS.set(f"{session_id}:prereqs", dump_prereqs(current_session_prereqs.get()))
+    REDIS.set(f"{session_id}:prereqs", dump_prereqs(parsed_userprereqs))
     return response.text
-
-
-"""
-Handler = Callable[[BaseModel, str, str], Any]
-REGISTRY: Dict[str, tuple[Type[BaseModel], Handler, str]] = {
-    "course_query": (
-        CourseQueryFormat,
-        course_query,
-        "You should always choose the best ones and return in the format of course_id: document.",
-    ),
-    "add_user_prereqs": (
-        AddUserPrereqsFormat,
-        update_user_prereqs,
-        "Added user prereqs.",
-    ),
-}
-
-
-def handle_request(raw: Dict[str, Any]) -> Any:
-    call_signature = RPCRequest.model_validate(raw)
-
-    entry = REGISTRY.get(call_signature.method)
-    if entry is None:
-        return {
-            "ok": False,
-            "error": {
-                "code": "METHOD_NOT_FOUND",
-                "message": f"Unknown method: {call_signature.method}",
-                "allowed_methods": sorted(REGISTRY.keys()),
-            },
-        }
-
-    params_model, fn, message_to_ai = entry
-
-    # Validate ONLY against the selected method's schema
-    try:
-        args = params_model.model_validate(call_signature.params)
-    except ValidationError as e:
-        return {
-            "ok": False,
-            "error": {
-                "code": "INVALID_PARAMS",
-                "message": "Params failed validation",
-                "details": e.errors(),  # machine-readable
-                "call_signature": call_signature.model_dump(),
-            },
-        }
-
-    # Call handler
-    return fn(args, call_signature.method, message_to_ai)
-
-
-def manual_gemini_call():
-    client = genai.Client()
-    tools = types.Tool(
-        function_declarations=[CourseQueryJSONformat, AddUserPrereqsJSONformat]
-    )
-    config = types.GenerateContentConfig(tools=[update_user_prereqs])
-    run = True
-    initial_message = "User inquiry: -Add CS 100 to my prereqs.-"
-    messages = []
-
-    while run:
-        # Send request with function declarations
-        data = {
-            "User Prereqs Fulfilled": list(user_prereqs),
-        }
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=initial_message
-            + "\n These are the user data:\n"
-            + json.dumps(data)
-            + (
-                (
-                    "\n\n### TOOL_RESULT (do not ignore)\nTOOL_RESULT_JSON:\n"
-                    + messages[-1]
-                )
-                if messages
-                else ""
-            ),
-            config=config,
-        )
-
-        if response.candidates[0].content.parts[0].function_call:
-            run = True
-            function_call = response.candidates[0].content.parts[0].function_call
-            print("Call Signature:", function_call)
-            result = handle_request(
-                {"method": function_call.name, "params": function_call.args}
-            )
-            print("Call Result:", result)
-            print()
-            messages.append(json.dumps(result))
-        else:
-            run = False
-            print(response.text)
-        print(user_prereqs)
-"""

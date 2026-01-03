@@ -1,4 +1,0 @@
-
-
-you're job is to rerank the courses according to the query and return all of them to the user.
-NOTE: YOUR JOB IS NOT TO FILTER JUST TO RERANK. RETURN ALL THE COURSES TO THE USER!!!

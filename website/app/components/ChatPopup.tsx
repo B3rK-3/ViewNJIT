@@ -1,10 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { MessageCircle, X, Send } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import { currentTerm, getSessionUUID } from "../constants";
 
 export default function ChatPopup() {
+    const chatURL =
+        process.env.NODE_ENV === "development"
+            ? "http://localhost:3001/chat"
+            : "https://flownjit.com/chat";
     const sessionUUIDPromise = getSessionUUID();
     const errorMessage = "Something went wrong! Try again later!";
     const [isOpen, setIsOpen] = useState(false);
@@ -19,6 +26,15 @@ export default function ChatPopup() {
     ]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, isLoading, isOpen]);
 
     const handleSendMessage = () => {
         if (inputValue.trim()) {
@@ -31,7 +47,7 @@ export default function ChatPopup() {
             setIsLoading(true);
 
             sessionUUIDPromise.then((sessionUUID) => {
-                fetch("https://flownjit.com/chat", {
+                fetch(chatURL, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -126,6 +142,35 @@ export default function ChatPopup() {
                         .typing-dot:nth-child(3) {
                             animation-delay: 0.4s;
                         }
+                        .markdown-content p {
+                            margin-bottom: 0.5rem;
+                        }
+                        .markdown-content p:last-child {
+                            margin-bottom: 0;
+                        }
+                        .markdown-content ul, .markdown-content ol {
+                            margin-bottom: 0.5rem;
+                            padding-left: 1.25rem;
+                        }
+                        .markdown-content li {
+                            margin-bottom: 0.25rem;
+                        }
+                        .markdown-content a {
+                            color: #4f46e5;
+                            text-decoration: underline;
+                        }
+                        .dark .markdown-content a {
+                            color: #818cf8;
+                        }
+                        .markdown-content code {
+                            background-color: #f1f5f9;
+                            padding: 0.125rem 0.25rem;
+                            border-radius: 0.25rem;
+                            font-size: 0.8rem;
+                        }
+                        .dark .markdown-content code {
+                            background-color: #334155;
+                        }
                     `}</style>
                     {messages.map((message) => (
                         <div
@@ -143,9 +188,26 @@ export default function ChatPopup() {
                                         : "bg-white dark:bg-slate-700 text-slate-900 dark:text-white rounded-bl-none border border-slate-200 dark:border-slate-600"
                                 }`}
                             >
-                                <p className="text-sm whitespace-pre-wrap break-words">
-                                    {message.text.replace(/\\n/g, "\n").replace(/\\t/g, "\t")}
-                                </p>
+                                {message.sender === "user" ? (
+                                    <p className="text-sm whitespace-pre-wrap break-words">
+                                        {message.text
+                                            .replace(/\\n/g, "\n")
+                                            .replace(/\\t/g, "\t")}
+                                    </p>
+                                ) : (
+                                    <div className="text-sm markdown-content break-words">
+                                        <ReactMarkdown
+                                            remarkPlugins={[
+                                                remarkGfm,
+                                                remarkBreaks,
+                                            ]}
+                                        >
+                                            {message.text
+                                                .replace(/\\n/g, "\n")
+                                                .replace(/\\t/g, "\t")}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -158,6 +220,7 @@ export default function ChatPopup() {
                             </div>
                         </div>
                     )}
+                    <div ref={messagesEndRef} />
                 </div>
 
                 {/* Input Area */}

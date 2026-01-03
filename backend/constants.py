@@ -13,30 +13,38 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CHROMA_KEY = os.getenv("CHROMA_KEY")
 CHROMA_TENANT = os.getenv("CHROMA_TENANT")
 CHROMA_DB = os.getenv("CHROMA_DB")
-# paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "../data/graph.json")
+DATA_FILE = os.path.join(BASE_DIR, "data/graph.json")
 REDIS = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+LECTURERS_FILE = os.path.join(BASE_DIR, "data/lecturers.json")
+DESCRIPTION_PROCESS_PROMPT_FILE = (
+    r"d:\Projects\NJIT_Course_FLOWCHART\backend\prompts\description_process_prompt.txt"
+)
+CHATBOT_PROMPT_FILE = (
+    r"d:\Projects\NJIT_Course_FLOWCHART\backend\prompts\chatbot_prompt.txt"
+)
 
 
-# section entries
+# SectionsEntries = Section	    CRN	    Days	Times	Location	Status	Max	Now	Instructor	Delivery Mode	Credits	Info	Comments
 SectionEntries = Tuple[str, str, str, str, str, str, str, str, str, str, str, str, str]
 SectionInfo = Dict[str, SectionEntries]
 
 TERMS = Literal["202610", "202595", "202590", "202550", "202510"]
 STANDINGS = ["FRESHMAN", "SOPHOMORE", "JUNIOR", "SENIOR", "GRAD"]
 StandingsLiteral = Literal["FRESHMAN", "SOPHOMORE", "JUNIOR", "SENIOR", "GRAD"]
-
 SEMESTERS = {
     "10": "Spring",
     "90": "Fall",
     "95": "Winter",
     "50": "Summer",
 }
-
 COLLECTION_NAME = "njit_courses"
 
-PermittedGrades = Literal["A", "B+", "B", "C+", "C", "F"]
+
+
+
+#### ---- COURSE DATA SCHEMA - BEGIN ------ ####
+PermittedGrades = Literal["A", "B+", "B", "C+", "C", "C-", "F"]
 
 PlacementKind = Literal[
     "PLACEMENT_INTO_COURSE",
@@ -98,7 +106,6 @@ RestrictionKind = Literal[
 ]
 
 
-# pydantic models
 class AndOrNodeModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["AND", "OR"]
@@ -109,7 +116,7 @@ class CourseNodeModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["COURSE"]
     course: str
-    min_grade: Optional[str] = None
+    min_grade: Optional[PermittedGrades] = None
 
 
 class PlacementNodeModel(BaseModel):
@@ -185,12 +192,13 @@ class CourseInfoModel(BaseModel):
     desc: str
     title: str
     credits: Optional[Union[float, None]] = None
-    sections: Optional[Dict[str, SectionInfo]] = None
+    sections: Dict[str, SectionInfo]
 
 
 class CourseStructureModel(RootModel[Dict[str, CourseInfoModel]]):
     pass
 
+#### ---- COURSE DATA SCHEMA - END ------ ####
 
 class CourseMetadata(BaseModel):
     title: str
@@ -215,8 +223,16 @@ class CourseQueryFormat(BaseModel):
     only_prereqs_fulfilled: bool = Field(
         default=True,
         description=(
-            "If true, return only courses for which the user satisfies all prerequisites. "
-            "If false, return all relevant courses regardless of prerequisites."
+            "If true, returns only courses for which the user satisfies all prerequisites. "
+            "If false, returns all relevant courses regardless of prerequisites."
+        ),
+    )
+
+    only_current_semester: bool = Field(
+        default=True,
+        description=(
+            "If true, only looks at courses offered in current semester."
+            "If false, looks at all courses."
         ),
     )
 
@@ -243,7 +259,26 @@ class UserFulfilled(BaseModel):
     semesters_left: Optional[int] = None
 
 
-class AddUserPrereqsFormat(BaseModel):
+class RemoveFromUserProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    courses: List[str] = Field(
+        default_factory=list,
+        description="List of courses to remove.",
+    )
+    equivalents: List[str] = Field(
+        default_factory=list,
+        description="List of courses equivalents to remove.",
+    )
+    standing: Optional[bool] = Field(
+        default=False,
+        description="Whether to remove standing from profile.",
+    )
+    semesters_left: Optional[bool] = Field(
+        default=False, description="Whether to remove semesters_left from profile."
+    )
+
+
+class UpdateUserProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     courses: List[UserCourseInfo] = Field(
         default_factory=list,
@@ -251,7 +286,7 @@ class AddUserPrereqsFormat(BaseModel):
     )
     equivalents: List[str] = Field(
         default_factory=list,
-        description="List of courses that the user has equivalents for. Example: (equivalents for CS 350).",
+        description="List of courses that the user has equivalents for. Example: Example: I have equivalent for CS 350 -> equivalents = [CS 350].",
     )
     standing: Optional[StandingsLiteral] = Field(
         default=None,
@@ -260,10 +295,28 @@ class AddUserPrereqsFormat(BaseModel):
     semesters_left: Optional[int] = Field(
         default=None, description="Number of semesters remaining until graduation."
     )
+    to_remove: Optional[RemoveFromUserProfile] = Field(
+        default=None,
+        description="Removes stuff from profile.",  # TODO: change stuff
+    )
+
 
 class CourseSearchFormat(BaseModel):
     model_config = ConfigDict(extra="forbid")
     course_name: str
+
+
+class MakeScheduleFormat(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    courses: List[str] = Field(
+        description="List of course names to include in the schedule."
+    )
+    max_days: int = Field(
+        ge=1,
+        le=5,
+        description="Maximum number of days per week the user wants to attend classes (1-5).",
+    )
+
 
 class RPCRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -281,32 +334,32 @@ class ChatResponse(BaseModel):
     response: str
 
 
-# data & state
-def load_graph_data(path: str) -> Dict[str, CourseInfoModel]:
+def load_course_data(path: str) -> Dict[str, CourseInfoModel]:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
     parsed = CourseStructureModel.model_validate(raw)
     return parsed.root
 
 
-graph_data: Dict[str, CourseInfoModel] = {}
+course_data: Dict[str, CourseInfoModel] = {}
 
 try:
-    graph_data = load_graph_data(DATA_FILE)
+    course_data = load_course_data(DATA_FILE)
 except FileNotFoundError:
-    print(f"Warning: {DATA_FILE} not found. graph_data will be empty.")
+    print(f"Warning: {DATA_FILE} not found. course_data will be empty.")
 except ValidationError as e:
     print("graph.json failed validation:")
     print(e)
-    graph_data = {}
+    course_data = {}
 
-
-# global state
-sections_data: Dict[str, SectionEntries] = {}
-current_term_courses: Set[str] = set()
+term_courses = {}
 CHAT_N = 5
-current_session_id = contextvars.ContextVar("current_session_id", default=None)
-current_session_prereqs = contextvars.ContextVar[UserFulfilled](
-    "current_session_prereqs", default=UserFulfilled()
-)
-VALID_COURSES = set(graph_data.keys())
+VALID_COURSES = set(course_data.keys())
+
+
+for course, course_info in course_data.items():
+    for term in course_info.sections.keys():
+        if term not in term_courses:
+            term_courses[term] = list()
+        else:
+            term_courses[term].append(course)
