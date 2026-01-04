@@ -1,4 +1,4 @@
-# FlowNJIT
+# FlowNJIT.com
 
 A comprehensive course prerequisite visualization and planning tool for New Jersey Institute of Technology (NJIT) students. This application helps students understand course dependencies, plan their academic path, and explore course relationships through an interactive graph visualization.
 
