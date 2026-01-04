@@ -1,52 +1,100 @@
-from backend.constants import CHATBOT_PROMPT_FILE
-from backend.constants import term_courses
-from backend.constants import TERMS
 from backend.constants import (
     CourseQueryFormat,
-    RPCRequest,
-    course_data,
-    COLLECTION_NAME,
+    COURSE_DATA,
+    CHROMA_COLLECTION_NAME,
     CourseMetadata,
-    GEMINI_API_KEY,
     UserFulfilled,
-    CHAT_N,
     UpdateUserProfile,
-    CHROMA_KEY,
-    CHROMA_TENANT,
-    CHROMA_DB,
     REDIS,
     STANDINGS,
-    VALID_COURSES,
+    VALID_COURSE_NAMES,
     CourseSearchFormat,
     MakeScheduleFormat,
+    TERMS,
+    term_courses,
+    CHATBOT_PROMPT_FILE,
+    CourseStructureModel,
+    CHROMA_CLIENT,
+    CHROMA_COLLECTION,
+    CROSS_ENCODER,
+    COURSE_DATA_FILE,
+    REDIS_LECTURERS_KEY,
+    LECTURERS_DATA_FILE,
+    REDIS_COURSES_KEY,
 )
 import hashlib
-import chromadb
 from typing import List, Tuple, Dict, Any, Optional
-from chromadb.utils import embedding_functions
-from sentence_transformers import CrossEncoder
-import time
 from google import genai
 from google.genai import types
 import json
-from torch.cuda import is_available
 import itertools
+import os
 
 
-device = "cpu"
-if is_available:
-    device = "cuda"
-ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2", device=device
-)
+def construct_term_courses():
+    for course, course_info in COURSE_DATA.items():
+        for term in course_info.sections.keys():
+            if term not in term_courses:
+                term_courses[term] = list()
+            else:
+                term_courses[term].append(course)
 
-cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=device)
 
-chroma_client = chromadb.PersistentClient(path="./chromadb")
+construct_term_courses()
 
-collection = chroma_client.get_or_create_collection(
-    name=COLLECTION_NAME, embedding_function=ef
-)
+
+def set_redis_lecturer_data():
+    """
+    Loads initial lecturer data from the local JSON file into Redis if it exists.
+    """
+    if os.path.exists(LECTURERS_DATA_FILE):
+        print(f"Loading lecturer data from {LECTURERS_DATA_FILE} to Redis...")
+        try:
+            with open(LECTURERS_DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data:
+                pipe = REDIS.pipeline()
+                for name, rating in data.items():
+                    pipe.hset(REDIS_LECTURERS_KEY, name, json.dumps(rating))
+                pipe.execute()
+                print(f"Loaded {len(data)} lecturers to Redis.")
+        except Exception as e:
+            print(f"Error loading lecturer data file: {e}")
+    else:
+        print(f"No lecturer data file found at {LECTURERS_DATA_FILE}")
+
+
+def set_redis_course_data(path: str = COURSE_DATA_FILE):
+    # Always load from local JSON file as the source of truth
+    print(f"Loading course data from {path}...")
+    if not os.path.exists(path):
+        print(f"Error: Course data file not found at {path}")
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw_json = json.load(f)
+
+        # Populate Redis with the loaded data
+        print("Populating Redis with course data...")
+        pipe = REDIS.pipeline()
+        for course_name, info in raw_json.items():
+            pipe.hset(REDIS_COURSES_KEY, course_name, json.dumps(info))
+        pipe.execute()
+
+        parsed = CourseStructureModel.model_validate(raw_json)
+        COURSE_DATA.clear()
+        COURSE_DATA.update(parsed.root)
+        VALID_COURSE_NAMES.clear()
+        VALID_COURSE_NAMES.update(COURSE_DATA.keys())
+        construct_term_courses()  # Refresh term mappings
+        print(f"Successfully loaded and cached {len(COURSE_DATA)} courses.")
+    except Exception as e:
+        print(f"Error loading course data: {e}")
+    return
+
+
+set_redis_course_data()
 
 
 def lcs_length(a: str, b: str) -> int:
@@ -72,7 +120,7 @@ def best_course_matches(query: str) -> List[str]:
     scores = []
     max_score = 0
 
-    for s in VALID_COURSES:
+    for s in VALID_COURSE_NAMES:
         score = lcs_length(query, s)
         scores.append((s, score))
         max_score = max(max_score, score)
@@ -81,7 +129,7 @@ def best_course_matches(query: str) -> List[str]:
 
 
 def is_valid_course(course_name: str) -> None | List[str]:
-    valid_course = course_name in VALID_COURSES
+    valid_course = course_name in VALID_COURSE_NAMES
     if valid_course:
         return None
     else:
@@ -111,14 +159,6 @@ def normalize_course(course_name: str) -> str | dict:
     }
 
 
-def FunctionResult(method: str, response: Any, message_to_ai: str):
-    return {
-        "method": method,
-        "response": response,
-        "message_to_ai": message_to_ai,
-    }
-
-
 def generate_hash(title: str, description: str) -> Tuple[str, str]:
     """
     generates an md5 hash of the given text.
@@ -139,13 +179,13 @@ def initialize_database() -> None:
     print("Initializing ChromaClient...")
 
     try:
-        heartbeat = chroma_client.heartbeat()
+        heartbeat = CHROMA_CLIENT.heartbeat()
         print("ChromaDB Heartbeat:", heartbeat)
     except Exception as e:
         print("Could not initialize ChromaDB PersistentClient at ./chromadb")
         raise e
 
-    print(f"Getting or creating collection '{COLLECTION_NAME}'...")
+    print(f"Getting or creating collection '{CHROMA_COLLECTION_NAME}'...")
 
     ids_to_upsert: List[str] = []
     documents_to_upsert: List[str] = []
@@ -153,14 +193,14 @@ def initialize_database() -> None:
 
     print("Checking for updates in graph data...")
 
-    for course_id, info in course_data.items():
+    for course_id, info in COURSE_DATA.items():
         title = info.title
         description = info.desc
 
         computed_hash, combined_text = generate_hash(title, description)
 
         # retrieve specific item to check hash
-        result = collection.get(ids=[course_id], include=["metadatas"])
+        result = CHROMA_COLLECTION.get(ids=[course_id], include=["metadatas"])
 
         needs_upsert = False
         if not result["ids"]:
@@ -185,7 +225,7 @@ def initialize_database() -> None:
 
         # batch upsert
         if len(ids_to_upsert) >= 100:
-            collection.upsert(
+            CHROMA_COLLECTION.upsert(
                 ids=ids_to_upsert,
                 documents=documents_to_upsert,
                 metadatas=metadatas_to_upsert,
@@ -197,7 +237,7 @@ def initialize_database() -> None:
 
     # final batch
     if len(ids_to_upsert) > 0:
-        collection.upsert(
+        CHROMA_COLLECTION.upsert(
             ids=ids_to_upsert,
             documents=documents_to_upsert,
             metadatas=metadatas_to_upsert,  # type: ignore
@@ -322,7 +362,7 @@ def get_available_courses(
     if only_current_term:
         course_names = term_courses[term]
     else:
-        course_names = list(course_data.keys())
+        course_names = list(COURSE_DATA.keys())
 
     if only_prereqs_fulfilled:
         satisfied_courses = []
@@ -332,7 +372,7 @@ def get_available_courses(
                 continue
 
             if (
-                check_prereq_tree(course_data[course_name].prereq_tree, user_prereqs)
+                check_prereq_tree(COURSE_DATA[course_name].prereq_tree, user_prereqs)
                 is True
             ):
                 satisfied_courses.append(course_name)
@@ -435,7 +475,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
         fetch_k = 500
 
         try:
-            results = collection.query(
+            results = CHROMA_COLLECTION.query(
                 ids=get_available_courses(
                     user_prereqs,
                     args.only_prereqs_fulfilled,
@@ -479,7 +519,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             # rerank with cross encoder
             if flat_results:
                 pairs = [[query_text, item["document"]] for item in flat_results]
-                scores = cross_encoder.predict(pairs)
+                scores = CROSS_ENCODER.predict(pairs)
                 for i, item in enumerate(flat_results):
                     item["score"] = float(scores[i])
 
@@ -587,7 +627,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             return res
         course_name = res
 
-        return course_data[course_name].desc
+        return COURSE_DATA[course_name].desc
 
     def can_take_course(args: CourseSearchFormat) -> bool | str:
         """
@@ -610,7 +650,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
         if course_name in user_prereqs.courses:
             return f"You have already completed or are currently taking {course_name}."
 
-        course_info = course_data[course_name]
+        course_info = COURSE_DATA[course_name]
         return check_prereq_tree(course_info.prereq_tree, user_prereqs)
 
     def make_schedule(args: MakeScheduleFormat) -> Dict[str, Any]:
@@ -647,7 +687,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
 
         course_sections_list = []
         for course_name in valid_courses:
-            course_info = course_data[course_name]
+            course_info = COURSE_DATA[course_name]
             if not course_info:
                 errors.append(
                     {"error_message": f"Course data not found for {course_name}"}
@@ -819,7 +859,7 @@ def gemini_call(input_text: str, session_id: str, term: TERMS):
     # move to constants as global var
     with open(CHATBOT_PROMPT_FILE, "r", encoding="utf-8") as f:
         prompt = f.read()
-        
+
     sys_instruction = f"User's current profile: {prereqs_raw}." + prompt
 
     chat = client.chats.create(

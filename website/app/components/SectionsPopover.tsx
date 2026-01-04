@@ -5,7 +5,7 @@ import { graphData, sectionsData } from "../constants";
 
 interface SectionsPopoverProps {
     courseName: string;
-    profLinks: Record<string, string>;
+    profLinks: Record<string, { link: string; avgRating?: string }>;
     currentTerm: string;
 }
 
@@ -111,11 +111,11 @@ export default function SectionsPopover({
     }
 
     const getProfessorElement = (profName: string) => {
-        const link = profLinks[profName];
+        const profData = profLinks[profName];
         const notFoundUrl =
             "https://www.ratemyprofessors.com/teacher-not-found";
 
-        if (link === notFoundUrl) {
+        if (!profData || profData.link === notFoundUrl) {
             return (
                 <span className="flex items-center gap-1 inline-flex">
                     {profName}
@@ -136,19 +136,21 @@ export default function SectionsPopover({
             );
         }
 
-        if (link) {
-            return (
-                <a
-                    href={link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-indigo-600 dark:text-indigo-400 hover:underline"
-                >
-                    {profName}
-                </a>
-            );
-        }
-        return <>{profName}</>;
+        const displayName =
+            profData.avgRating && profData.avgRating !== "0"
+                ? `${profName} (${profData.avgRating})`
+                : profName;
+
+        return (
+            <a
+                href={profData.link}
+                target="_blank"
+                rel="noreferrer"
+                className="text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+                {displayName}
+            </a>
+        );
     };
 
     return (

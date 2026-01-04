@@ -1,0 +1,6 @@
+01/04/2026 04:29:10 AM - DEBUG: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
+01/04/2026 04:29:10 AM - DEBUG: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
+01/04/2026 04:29:11 AM - DEBUG: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
+01/04/2026 04:29:12 AM - DEBUG: Using proactor: IocpProactor
+01/04/2026 04:29:12 AM - DEBUG: https://us.i.posthog.com:443 "POST /batch/ HTTP/1.1" 200 15
+01/04/2026 04:29:12 AM - INFO: Both scrapers are running in the background...

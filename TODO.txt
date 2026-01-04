@@ -1,4 +1,3 @@
-- cleanup working directory
 - add restrictions to course sidebar
     - add a information/warning icon on the graph node abt restrictions
 - find a way to display co-reqs
@@ -11,3 +10,8 @@
 
 fix hallucinations with empty description in graph data
 update frontend to use the lecturer.json instead of fetching again from proxy
+
+- migrate courses data from json to redis.
+    - migrated lecturer.json to cache to redis for fast access
+    - need to migrate the graph.json in the website to redis
+        - need a good method of doing so

@@ -27,7 +27,9 @@ export default function CourseSidebar({
     infoLink,
     currentTerm,
 }: CourseSidebarProps) {
-    const [profLinks, setProfLinks] = useState<Record<string, string>>({});
+    const [profLinks, setProfLinks] = useState<
+        Record<string, { link: string; avgRating?: string }>
+    >({});
     // Fetch professor links when popover opens
     useEffect(() => {
         const fetchProfessorLinks = async () => {
@@ -36,36 +38,52 @@ export default function CourseSidebar({
             const courseData = sectionsData[currentCourse];
             const instructors = Array.from(
                 new Set(Object.values(courseData).map((section) => section[8]))
-            );
+            ).filter(Boolean);
 
-            // Map each instructor to a promise
-            const fetchPromises = instructors.map(async (instructor) => {
-                const [profLastName, profFirstName] = instructor.split(", ");
-                const url = `https://backend-server-black-phi.vercel.app/prof?q=${profFirstName} ${profLastName}&getData=false`;
+            if (instructors.length === 0) return;
+
+            const profURL =
+                process.env.NODE_ENV === "development"
+                    ? "http://localhost:3001/getprofs"
+                    : "https://flownjit.com/getprofs";
+
+            try {
+                const response = await fetch(profURL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ profs: instructors }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
                 const fallback =
                     "https://www.ratemyprofessors.com/teacher-not-found";
 
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok || response.status === 204) {
-                        return { instructor, link: fallback };
+                const newLinks: Record<
+                    string,
+                    { link: string; avgRating?: string }
+                > = {};
+                instructors.forEach((instructor) => {
+                    const profData = data[instructor];
+                    if (profData) {
+                        newLinks[instructor] = {
+                            link: profData.link || fallback,
+                            avgRating: profData.avgRating,
+                        };
+                    } else {
+                        newLinks[instructor] = { link: fallback };
                     }
-                    const data = await response.json();
-                    return { instructor, link: data.link || fallback };
-                } catch (error) {
-                    console.error(`Error fetching ${instructor}:`, error);
-                    return { instructor, link: fallback };
-                }
-            });
+                });
 
-            const results = await Promise.all(fetchPromises);
-
-            const newLinks: Record<string, string> = {};
-            results.forEach((res) => {
-                newLinks[res.instructor] = res.link;
-            });
-
-            setProfLinks((prev) => ({ ...prev, ...newLinks }));
+                setProfLinks((prev) => ({ ...prev, ...newLinks }));
+            } catch (error) {
+                console.error("Error fetching professor data:", error);
+            }
         };
 
         fetchProfessorLinks();

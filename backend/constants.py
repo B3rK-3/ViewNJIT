@@ -1,29 +1,47 @@
-import json
 import os
-from typing import List, Dict, Union, Optional, Literal, Set, Tuple, Any, Annotated
-from pydantic import BaseModel, RootModel, ConfigDict, ValidationError, Field
+from typing import List, Dict, Union, Optional, Literal, Tuple, Any, Annotated
+from pydantic import BaseModel, RootModel, ConfigDict, Field
 import dotenv
 import redis
-import contextvars
+from chromadb.utils import embedding_functions
+from sentence_transformers import CrossEncoder
+import chromadb
+from torch.cuda import is_available
 
 
-dotenv.load_dotenv("./.env")
+device = "cpu"
+if is_available():
+    device = "cuda"
+ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+    model_name="all-MiniLM-L6-v2", device=device
+)
+
+CROSS_ENCODER = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=device)
+
+CHROMA_CLIENT = chromadb.PersistentClient(path="./chromadb")
+
+CHROMA_COLLECTION_NAME = "njit_courses"
+CHROMA_COLLECTION = CHROMA_CLIENT.get_or_create_collection(
+    name=CHROMA_COLLECTION_NAME, embedding_function=ef
+)
+
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CHROMA_KEY = os.getenv("CHROMA_KEY")
 CHROMA_TENANT = os.getenv("CHROMA_TENANT")
 CHROMA_DB = os.getenv("CHROMA_DB")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "data/graph.json")
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
+COURSE_DATA_FILE = os.path.join(BASE_DIR, "data/graph.json")
+BASE_PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 REDIS = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-LECTURERS_FILE = os.path.join(BASE_DIR, "data/lecturers.json")
-DESCRIPTION_PROCESS_PROMPT_FILE = (
-    r"d:\Projects\NJIT_Course_FLOWCHART\backend\prompts\description_process_prompt.txt"
-)
-CHATBOT_PROMPT_FILE = (
-    r"d:\Projects\NJIT_Course_FLOWCHART\backend\prompts\chatbot_prompt.txt"
-)
+LECTURERS_DATA_FILE = os.path.join(BASE_DIR, "data/lecturers.json")
+CHATBOT_PROMPT_FILE = os.path.join(BASE_PROMPTS_DIR, "chatbot_prompt.txt")
 
+REDIS_LECTURERS_KEY = "lecturers"
+REDIS_COURSES_KEY = "courses"
+
+dotenv.load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # SectionsEntries = Section	    CRN	    Days	Times	Location	Status	Max	Now	Instructor	Delivery Mode	Credits	Info	Comments
 SectionEntries = Tuple[str, str, str, str, str, str, str, str, str, str, str, str, str]
@@ -38,9 +56,6 @@ SEMESTERS = {
     "95": "Winter",
     "50": "Summer",
 }
-COLLECTION_NAME = "njit_courses"
-
-
 
 
 #### ---- COURSE DATA SCHEMA - BEGIN ------ ####
@@ -198,7 +213,9 @@ class CourseInfoModel(BaseModel):
 class CourseStructureModel(RootModel[Dict[str, CourseInfoModel]]):
     pass
 
+
 #### ---- COURSE DATA SCHEMA - END ------ ####
+
 
 class CourseMetadata(BaseModel):
     title: str
@@ -334,32 +351,24 @@ class ChatResponse(BaseModel):
     response: str
 
 
-def load_course_data(path: str) -> Dict[str, CourseInfoModel]:
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    parsed = CourseStructureModel.model_validate(raw)
-    return parsed.root
+class ProfsRequest(BaseModel):
+    profs: list[str]
 
 
-course_data: Dict[str, CourseInfoModel] = {}
+class LecturerRating(BaseModel):
+    avgRating: str
+    wouldTakeAgainPercent: str
+    avgDifficulty: str
+    link: str
+    numRatings: str
+    legacyId: int
 
-try:
-    course_data = load_course_data(DATA_FILE)
-except FileNotFoundError:
-    print(f"Warning: {DATA_FILE} not found. course_data will be empty.")
-except ValidationError as e:
-    print("graph.json failed validation:")
-    print(e)
-    course_data = {}
+
+ProfsResponse = Dict[str, Union[LecturerRating, None]]
+
+
+COURSE_DATA: Dict[str, CourseInfoModel] = {}
+VALID_COURSE_NAMES = set()
 
 term_courses = {}
 CHAT_N = 5
-VALID_COURSES = set(course_data.keys())
-
-
-for course, course_info in course_data.items():
-    for term in course_info.sections.keys():
-        if term not in term_courses:
-            term_courses[term] = list()
-        else:
-            term_courses[term].append(course)

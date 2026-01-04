@@ -1,20 +1,19 @@
+from backend.constants import REDIS_COURSES_KEY
 import json
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import requests
-import base64
 import random
-import json
 import time
 import argparse
 import dotenv
 from google import genai
 from google.genai import types
 import os
+import base64
 from typing import Dict, List, Optional, Any, Union
 from backend.scrapers.rmp import sync_lecturer_rating
-from backend.constants import DESCRIPTION_PROCESS_PROMPT_FILE
+from backend.constants import COURSE_DATA_FILE, REDIS
+from backend.scrapers.constants import DESCRIPTION_PROCESS_PROMPT_FILE, logger
 
 dotenv.load_dotenv()
 
@@ -75,7 +74,7 @@ def process_single_description(description: str) -> Union[Dict[str, Any], None, 
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("Error: GEMINI_API_KEY environment variable is not set.")
+        logger.error("GEMINI_API_KEY environment variable is not set.")
         return None
 
     client = genai.Client(api_key=api_key)
@@ -99,14 +98,14 @@ def process_single_description(description: str) -> Union[Dict[str, Any], None, 
             parsed_json = json.loads(clean_text)
             return parsed_json
         except json.JSONDecodeError:
-            print(f"Error parsing JSON. Raw output: {response.text}")
+            logger.error(f"Error parsing JSON. Raw output: {response.text}")
             return {
                 "error": "JSON Parse Error",
                 "raw_response": response.text,
             }
 
     except Exception as e:
-        print(f"API Error: {e}")
+        logger.error(f"Gemini API Error: {e}")
         return {}
 
 
@@ -171,8 +170,8 @@ def fetch_courses(
         return response.json()
 
     except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error: {e}")
-        print(f"Response Body: {response.text}")
+        logger.error(f"HTTP Error: {e}")
+        logger.debug(f"Response Body: {response.text}")
         return None
 
 
@@ -219,16 +218,14 @@ def fetch_subj_list(
         return response.json()
 
     except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error: {e}")
-        print(f"Response Body: {response.text}")
+        logger.error(f"HTTP Error: {e}")
+        logger.debug(f"Response Body: {response.text}")
         return None
 
 
 def run_section_scraper(term: str) -> Dict[str, Any]:
     """Run the section scraper to fetch course data from the API and return as dict"""
-    print("=" * 60)
-    print("STEP 1: Running Section Scraper")
-    print("=" * 60)
+    logger.info("STEP 1: Running Section Scraper")
 
     # Load subjects
     # fetch list of subjects from api
@@ -238,7 +235,7 @@ def run_section_scraper(term: str) -> Dict[str, Any]:
     for item in subjects_list:
         subj = item.get("SUBJECT")
         if subj:
-            print(f"Fetching courses for {subj}...")
+            logger.info(f"Fetching courses for {subj}...")
             # fetch courses for specific subject
             response_data = fetch_courses(subj, term, max_results="500")
 
@@ -246,11 +243,12 @@ def run_section_scraper(term: str) -> Dict[str, Any]:
 
             time.sleep(0.2)
 
-    print(f"✓ Section scraper complete. Fetched {len(final_data)} subjects\n")
+    logger.info(f"Section scraper complete. Fetched {len(final_data)} subjects")
     return final_data
 
 
 # ===== MAIN PARSER FUNCTIONS =====
+
 
 def extract_sections_from_html(html_content: str, term: str) -> None:
     """Extract all course sections from HTML content by finding h4 elements and their following tables"""
@@ -339,7 +337,7 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
 
                 course_id = course_id.replace("\u00a0", " ")
                 if course_id not in all_courses.keys():
-                    print("New Course Found:", course_id)
+                    logger.info(f"New Course Found: {course_id}")
                     # fetch individual course details
                     course_obj = get_individual_course(course_id)
 
@@ -369,23 +367,20 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
                 all_courses[course_id]["credits"] = num_credits
 
                 if not all_courses[course_id]["sections"]:
-                    print(course_id, "has no sections")
+                    logger.warning(f"{course_id} has no sections")
 
     except Exception as e:
-        print(f"Error parsing HTML: {e}")
+        logger.error(f"Error parsing HTML: {e}")
         return None
 
 
 def run_parser(scraped_data: Dict[str, Any], term: str) -> None:
     """Run the parser to extract sections from scraped data dict"""
-    print("=" * 60)
-    print("STEP 2: Running Section Parser")
-    print("=" * 60)
-
-    print(f"\nExtracting sections from {len(scraped_data)} subjects...\n")
+    logger.info("STEP 2: Running Section Parser")
+    logger.info(f"Extracting sections from {len(scraped_data)} subjects...")
 
     for course_name, course_data in scraped_data.items():
-        print(f"Processing {course_name}...")
+        logger.debug(f"Processing {course_name}...")
         course_data = course_data[0]
 
         # If it's already a dict, look for HTML content in values
@@ -401,7 +396,7 @@ def run_parser(scraped_data: Dict[str, Any], term: str) -> None:
 def scrape_undergrad_grad_catalog(url: str) -> None:
     """Scrape courses from a given URL"""
     try:
-        print(f"Scraping: {url}")
+        logger.info(f"Scraping: {url}")
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
@@ -434,24 +429,12 @@ def scrape_undergrad_grad_catalog(url: str) -> None:
             if course_code in all_courses:
                 course_obj = all_courses[course_code]
                 if course_obj["title"] != title:
-                    print(
-                        "Title changed:",
-                        course_code,
-                        "Old title:",
-                        course_obj["title"],
-                        "New Title:",
-                        title,
+                    logger.info(
+                        f"Title changed: {course_code} | Old: {course_obj['title']} | New: {title}"
                     )
                     course_obj["title"] = title
                 elif course_obj["desc"] != description:
-                    print(
-                        "Description changed:",
-                        course_code,
-                        "Old description:",
-                        course_obj["desc"],
-                        "New description:",
-                        description,
-                    )
+                    logger.info(f"Description changed for {course_code}")
                     course_obj["desc"] = description
                     # update existing course with ai data
                     course_returns = process_single_description(course_obj["desc"])
@@ -465,18 +448,88 @@ def scrape_undergrad_grad_catalog(url: str) -> None:
                 course_obj["sections"] = {}
             all_courses[course_code] = course_obj
 
-        print(f"✓ Found {len(all_courses)} courses")
+        logger.info(f"Found {len(all_courses)} courses")
 
     except Exception as e:
-        print(f"✗ Error scraping {url}: {e}")
+        logger.error(f"Error scraping {url}: {e}")
+
+
+def scrape_courses(
+    term: str = "202610",
+    output_file: str = COURSE_DATA_FILE,
+    catalog: bool = False,
+    sections: bool = False,
+):
+    """
+    Main logic for scraping NJIT course catalog and section information.
+    """
+    global all_courses
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                all_courses = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load existing data from {output_file}: {e}")
+            all_courses = {}
+    else:
+        all_courses = {}
+    # If no flags are specified, run both scrapers.
+    # If both flags are specified, run both.
+    # Otherwise, run the specified scraper.
+    run_catalog = not sections or catalog
+    run_sections = not catalog or sections
+
+    if sections and not catalog:
+        run_catalog = False
+    elif catalog and not sections:
+        run_sections = False
+
+    semester = semesters[term[-2:]]
+    term_text = term[:-2] + " " + semester
+
+    if run_catalog:
+        logger.info("RUNNING CATALOG SCRAPER")
+        for url in links:
+            # scrape catalog page from url
+            scrape_undergrad_grad_catalog(url)
+        logger.info("Catalog scraping complete.")
+
+    if run_sections:
+        if not term:
+            logger.error("Term is required when scraping sections.")
+            return
+
+        logger.info(f"RUNNING SECTIONS SCRAPER FOR TERM: {term_text}")
+        # run scraper for course sections
+        scraped_data = run_section_scraper(term)
+        # parse scraped section data
+        run_parser(scraped_data, term)
+        logger.info("Section scraping and parsing complete.")
+
+    # Save to JSON and Redis
+    if run_catalog or run_sections:
+        # 1. Save to local JSON
+        with open(output_file, "w") as f:
+            json.dump(all_courses, f, indent=4)
+        logger.info(f"Saved {len(all_courses)} courses to {output_file}")
+
+        # 2. Save to Redis with pipeline
+        logger.info("Syncing course data to Redis...")
+        try:
+            pipe = REDIS.pipeline()
+            for course_name, info in all_courses.items():
+                pipe.hset(REDIS_COURSES_KEY, course_name, json.dumps(info))
+            pipe.execute()
+            logger.info(f"Synced {len(all_courses)} courses to Redis.")
+        except Exception as e:
+            logger.error(f"Error syncing to Redis: {e}")
+    else:
+        logger.warning(
+            "No action performed. Use catalog=True, sections=True, or both=False to run."
+        )
 
 
 def main():
-    global all_courses
-    all_courses = json.load(
-        open(r"d:\Projects\NJIT_Course_FLOWCHART\backend\data\graph.json", "r")
-    )
-
     """Scrape all links and save to JSON"""
     parser = argparse.ArgumentParser(
         description="Scrape NJIT course catalog and section information.",
@@ -495,7 +548,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default=r"d:\Projects\NJIT_Course_FLOWCHART\backend\data\graph.json",
+        default=COURSE_DATA_FILE,
         help="Path to the output JSON file.",
     )
     parser.add_argument(
@@ -511,54 +564,12 @@ def main():
 
     args = parser.parse_args()
 
-    # If no flags are specified, run both scrapers.
-    # If both flags are specified, run both.
-    # Otherwise, run the specified scraper.
-    run_catalog = not args.sections or args.catalog
-    run_sections = not args.catalog or args.sections
-
-    if args.sections and not args.catalog:
-        run_catalog = False
-    elif args.catalog and not args.sections:
-        run_sections = False
-
-    term = args.term
-    semester = semesters[term[-2:]]
-    term_text = term[:-2] + " " + semester
-
-    if run_catalog:
-        print("=" * 60)
-        print("RUNNING CATALOG SCRAPER")
-        print("=" * 60)
-        print("=" * 60)
-        for url in links:
-            # scrape catalog page from url
-            scrape_undergrad_grad_catalog(url)
-        print("\n✓ Catalog scraping complete.\n")
-
-    if run_sections:
-        if not term:
-            print("Error: --term is required when scraping sections.")
-            return
-
-        print("=" * 60)
-        print(f"RUNNING SECTIONS SCRAPER FOR TERM: {term_text}")
-        print("=" * 60)
-        print("-" * 60)
-        # run scraper for course sections
-        scraped_data = run_section_scraper(term)
-        # parse scraped section data
-        run_parser(scraped_data, term)
-        print("\n✓ Section scraping and parsing complete.\n")
-
-    # Save to JSON
-    if run_catalog or run_sections:
-        output_file = args.output
-        with open(output_file, "w") as f:
-            json.dump(all_courses, f, indent=4)
-        print(f"\n✓ Saved {len(all_courses)} courses to {output_file}")
-    else:
-        print("No action performed. Use --catalog, --sections, or no flags to run.")
+    scrape_courses(
+        term=args.term,
+        output_file=args.output,
+        catalog=args.catalog,
+        sections=args.sections,
+    )
 
 
 if __name__ == "__main__":

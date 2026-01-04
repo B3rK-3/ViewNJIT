@@ -147,15 +147,15 @@ Input: "Prerequisites: CS 114 and CS 241 or equivalents"
 Output:
 {
     "prereq_tree": {
-        "type": "AND",
+        "type": "OR",
         "children": [
-            {"type": "COURSE", "course": "CS 114", "min_grade": null},
             {
-                "type": "OR",
+                "type": "AND",
                 "children": [
+                    {"type": "COURSE", "course": "CS 114", "min_grade": null},
                     {"type": "COURSE", "course": "CS 241", "min_grade": null},
-                    {"type": "EQUIVALENT", "courses": ["CS 114", "CS 241"]}
                 ]
+                {"type": "EQUIVALENT", "courses": ["CS 114", "CS 241"]}
             }
         ]
     },
