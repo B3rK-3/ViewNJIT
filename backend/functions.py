@@ -1,26 +1,27 @@
 from backend.constants import (
-    CourseQueryFormat,
     COURSE_DATA,
     CHROMA_COLLECTION_NAME,
-    CourseMetadata,
-    UserFulfilled,
-    UpdateUserProfile,
     REDIS,
     STANDINGS,
     VALID_COURSE_NAMES,
-    CourseSearchFormat,
-    MakeScheduleFormat,
-    TERMS,
     term_courses,
     CHATBOT_PROMPT_FILE,
-    CourseStructureModel,
     CHROMA_CLIENT,
     CHROMA_COLLECTION,
     CROSS_ENCODER,
-    COURSE_DATA_FILE,
     REDIS_LECTURERS_KEY,
-    LECTURERS_DATA_FILE,
-    REDIS_COURSES_KEY,
+    LECTURER_DATA,
+)
+from backend.types import (
+    CourseQueryFormat,
+    CourseMetadata,
+    UserFulfilled,
+    UpdateUserProfile,
+    CourseSearchFormat,
+    MakeScheduleFormat,
+    TERMS,
+    LecturerStructureModel,
+    CourseStructureModel
 )
 import hashlib
 from typing import List, Tuple, Dict, Any, Optional
@@ -28,7 +29,6 @@ from google import genai
 from google.genai import types
 import json
 import itertools
-import os
 
 
 def construct_term_courses():
@@ -43,58 +43,31 @@ def construct_term_courses():
 construct_term_courses()
 
 
-def set_redis_lecturer_data():
+def set_local_lecturers_data():
     """
     Loads initial lecturer data from the local JSON file into Redis if it exists.
     """
-    if os.path.exists(LECTURERS_DATA_FILE):
-        print(f"Loading lecturer data from {LECTURERS_DATA_FILE} to Redis...")
-        try:
-            with open(LECTURERS_DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data:
-                pipe = REDIS.pipeline()
-                for name, rating in data.items():
-                    pipe.hset(REDIS_LECTURERS_KEY, name, json.dumps(rating))
-                pipe.execute()
-                print(f"Loaded {len(data)} lecturers to Redis.")
-        except Exception as e:
-            print(f"Error loading lecturer data file: {e}")
-    else:
-        print(f"No lecturer data file found at {LECTURERS_DATA_FILE}")
-
-
-def set_redis_course_data(path: str = COURSE_DATA_FILE):
-    # Always load from local JSON file as the source of truth
-    print(f"Loading course data from {path}...")
-    if not os.path.exists(path):
-        print(f"Error: Course data file not found at {path}")
-        return
-
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            raw_json = json.load(f)
+        raw_lecturers_string = REDIS.get("lecturers")
+        raw_json = json.loads(raw_lecturers_string)
+        parsed = LecturerStructureModel.model_validate(raw_json)
+        LECTURER_DATA.clear()
+        LECTURER_DATA.update(parsed.root)
+    except Exception as e:
+        print("Error:", e)
 
-        # Populate Redis with the loaded data
-        print("Populating Redis with course data...")
-        pipe = REDIS.pipeline()
-        for course_name, info in raw_json.items():
-            pipe.hset(REDIS_COURSES_KEY, course_name, json.dumps(info))
-        pipe.execute()
 
+def set_local_course_data():
+    try:
+        raw_courses_string = REDIS.get("courses")
+        raw_json = json.loads(raw_courses_string)
         parsed = CourseStructureModel.model_validate(raw_json)
         COURSE_DATA.clear()
         COURSE_DATA.update(parsed.root)
         VALID_COURSE_NAMES.clear()
-        VALID_COURSE_NAMES.update(COURSE_DATA.keys())
-        construct_term_courses()  # Refresh term mappings
-        print(f"Successfully loaded and cached {len(COURSE_DATA)} courses.")
+        VALID_COURSE_NAMES.update(parsed.root.keys())
     except Exception as e:
-        print(f"Error loading course data: {e}")
-    return
-
-
-set_redis_course_data()
+        print("Error:", e)
 
 
 def lcs_length(a: str, b: str) -> int:
@@ -660,7 +633,10 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
         Args:
             {
             "courses": "List of course names to include in the schedule.",
-            "max_days": "Maximum number of days per week the user wants to attend classes (1-5)."
+            "max_days": "Maximum number of days per week the user wants to attend classes (1-5).",
+            "locked_in_sections": "Dictionary where keys are course names and values are lists of section numbers (integers) to lock in.",
+            "min_rmp_rating": "Minimum RateMyProfessors rating (0.0 - 5.0) required for instructors.",
+            "days": "List of specific days (e.g., ['Monday', 'Wednesday']) the user can attend classes."
             }
 
         Returns:
@@ -685,6 +661,16 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
                 "message": "No valid courses provided.",
             }
 
+        # Normalize locked_in_sections keys
+        normalized_locked_in = {}
+        if args.locked_in_sections:
+            for c_name, sections in args.locked_in_sections.items():
+                norm = normalize_course(c_name)
+                if isinstance(norm, dict):
+                    errors.append(norm)
+                else:
+                    normalized_locked_in[norm] = sections
+
         course_sections_list = []
         for course_name in valid_courses:
             course_info = COURSE_DATA[course_name]
@@ -702,6 +688,60 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
                     }
                 )
                 continue
+
+            # --- FILTERING LOGIC START ---
+
+            # 1. Locked-in Sections
+            if normalized_locked_in and course_name in normalized_locked_in:
+                allowed_sections = {
+                    f"{s:03}" for s in normalized_locked_in[course_name]
+                }
+                term_sections = {
+                    sid: sdata
+                    for sid, sdata in term_sections.items()
+                    if sid in allowed_sections
+                }
+
+            # 2. RMP Rating
+            if args.min_rmp_rating is not None:
+                filtered_by_rating = {}
+                for sid, sdata in term_sections.items():
+                    instructor = sdata[8]  # Index 8 is Instructor
+                    try:
+                        rating_json = REDIS.hget(REDIS_LECTURERS_KEY, instructor)
+                        if rating_json:
+                            rating_obj = json.loads(rating_json)
+                            rating_val = float(rating_obj.get("avgRating", 0))
+                            if rating_val >= args.min_rmp_rating:
+                                filtered_by_rating[sid] = sdata
+                    except Exception:
+                        # If error parsing or fetching, we exclude the section to be safe
+                        pass
+                term_sections = filtered_by_rating
+
+            # 3. Specific Days
+            if args.days:
+                day_map = {
+                    "monday": "M",
+                    "tuesday": "T",
+                    "wednesday": "W",
+                    "thursday": "R",
+                    "friday": "F",
+                }
+                allowed_chars = {
+                    day_map[d.lower()] for d in args.days if d.lower() in day_map
+                }
+
+                filtered_by_days = {}
+                for sid, sdata in term_sections.items():
+                    # sdata[2] is Days string, e.g. "MW"
+                    # We keep section ONLY if ALL its days are in allowed_chars
+                    days_str = sdata[2]
+                    if all(char in allowed_chars for char in days_str if char != " "):
+                        filtered_by_days[sid] = sdata
+                term_sections = filtered_by_days
+
+            # --- FILTERING LOGIC END ---
 
             sections_for_course = []
             for section_id, section_data in term_sections.items():
@@ -726,14 +766,16 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
                 course_sections_list.append(sections_for_course)
             else:
                 errors.append(
-                    {"error_message": f"No sections with day info for {course_name}"}
+                    {
+                        "error_message": f"No sections matching criteria for {course_name}"
+                    }
                 )
 
         if not course_sections_list:
             return {
                 "errors": errors,
                 "schedules": [],
-                "message": "No sections available for any valid course.",
+                "message": "No sections available for any valid course after filtering.",
             }
 
         all_combinations = list(itertools.product(*course_sections_list))

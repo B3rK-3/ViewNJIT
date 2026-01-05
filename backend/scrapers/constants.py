@@ -2,6 +2,7 @@ from backend.constants import BASE_PROMPTS_DIR
 from backend.constants import LOGS_DIR
 import os
 import logging
+import redis
 
 logging.basicConfig(
     filename=os.path.join(LOGS_DIR, "scrapers.log"),
@@ -16,6 +17,8 @@ TERM_FILE_PATH = os.path.join(BASE_SCRAPER_DIR, "currentTerm.txt")
 DESCRIPTION_PROCESS_PROMPT_FILE = os.path.join(
     BASE_PROMPTS_DIR, "description_process_prompt.txt"
 )
+REDIS = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+
 
 DEFAULT_RATING = {
     "avgRating": "0",

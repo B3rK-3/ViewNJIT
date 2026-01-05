@@ -1,4 +1,3 @@
-from backend.constants import REDIS_COURSES_KEY
 import json
 import requests
 from bs4 import BeautifulSoup
@@ -12,12 +11,11 @@ import os
 import base64
 from typing import Dict, List, Optional, Any, Union
 from backend.scrapers.rmp import sync_lecturer_rating
-from backend.constants import COURSE_DATA_FILE, REDIS
-from backend.scrapers.constants import DESCRIPTION_PROCESS_PROMPT_FILE, logger
+from backend.scrapers.constants import DESCRIPTION_PROCESS_PROMPT_FILE, logger, REDIS
 
 dotenv.load_dotenv()
 
-all_courses = {}
+# all_courses = {}
 
 links = [
     "https://catalog.njit.edu/graduate/computing-sciences/#coursestext",
@@ -456,14 +454,14 @@ def scrape_undergrad_grad_catalog(url: str) -> None:
 
 def scrape_courses(
     term: str = "202610",
-    output_file: str = COURSE_DATA_FILE,
+    output_file: str = None,
     catalog: bool = False,
     sections: bool = False,
 ):
     """
     Main logic for scraping NJIT course catalog and section information.
     """
-    global all_courses
+    # global all_courses
     if os.path.exists(output_file):
         try:
             with open(output_file, "r", encoding="utf-8") as f:

@@ -15,3 +15,11 @@ update frontend to use the lecturer.json instead of fetching again from proxy
     - migrated lecturer.json to cache to redis for fast access
     - need to migrate the graph.json in the website to redis
         - need a good method of doing so
+
+- functionalities for make schedule
+    - allow users to enter locked in sections, the format:
+        - locked_in_sections: {course_names: [section_numbers converted to integer]} and for thatt course_name only these sections should be considered
+    - allow to restrict professor rmp rating to above a number, min_rmp_rating = 3.5
+    -in addition to min_days, allow which days. format:
+        - days: ["Wednesday", "Thursday"]
+        - these should be .lower and converted to the corresponding letter in the sections day format

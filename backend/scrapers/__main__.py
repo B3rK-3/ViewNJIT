@@ -1,11 +1,9 @@
 import os
 import threading
 import time
-from backend.constants import COURSE_DATA_FILE
-from backend.functions import set_redis_course_data
 from backend.scrapers.courses import scrape_courses
 from backend.scrapers.rmp import check_all_lecturers
-from backend.scrapers.constants import TERM_FILE_PATH, logger
+from backend.scrapers.constants import TERM_FILE_PATH, logger, REDIS
 
 
 def run_course_scraper():
@@ -21,7 +19,7 @@ def run_course_scraper():
                 if term:
                     logger.info(f"--- Starting course scrape for term: {term} ---")
                     scrape_courses(term, sections=True)
-                    set_redis_course_data()
+                    REDIS.publish("course_updates", "refresh")
                     logger.info(
                         "--- Course scrape finished. Sleeping for 5 minutes. ---"
                     )
@@ -38,6 +36,7 @@ def run_lecturer_check():
         try:
             logger.info("--- Starting lecturer check ---")
             check_all_lecturers()
+            REDIS.publish("lecturer_updates", "refresh")
             logger.info("--- Lecturer check finished. Sleeping for 6 hours. ---")
 
         except Exception as e:

@@ -27,6 +27,10 @@ FUNCTION INSTRUCTIONS:
             remind that they should confirm with registrar
         - If user does not have standing or semesters left in profile:
             remind that adding those could provide more accurate search
+    - make_schedule:
+        - The user can specify max_days less than the days
+            - means user cna come on days but not all days
+        - 
 
 USER REQUEST INSTRUCTIONS:
 - user profile request format:
