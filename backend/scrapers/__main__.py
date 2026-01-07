@@ -3,10 +3,18 @@ import threading
 import time
 from backend.scrapers.courses import scrape_courses
 from backend.scrapers.rmp import check_all_lecturers
-from backend.scrapers.constants import TERM_FILE_PATH, logger, REDIS
+from backend.scrapers.constants import (
+    TERM_FILE_PATH,
+    logger,
+    REDIS,
+    LECTURER_DATA,
+    COURSE_DATA,
+)
+
 
 
 def run_course_scraper():
+    print('starting course scraper')
     while True:
         time.sleep(5 * 60)
         try:
@@ -31,6 +39,7 @@ def run_course_scraper():
 
 
 def run_lecturer_check():
+    print('starting lecturer check')
     while True:
         time.sleep(6 * 60 * 60)
         try:
@@ -56,6 +65,13 @@ def start_background_scrapers():
 
 
 if __name__ == "__main__":
+    if not LECTURER_DATA:
+        logger.error("LECTURER_DATA NOT LOADED!")
+        raise Exception("LECTURER_DATA NOT LOADED!")
+    if not COURSE_DATA:
+        logger.error("COURSE_DATA NOT LOADED!")
+        raise Exception("COURSE_DATA NOT LOADED!")
+
     start_background_scrapers()
     # Keep the main thread alive so the background threads don't die
     try:

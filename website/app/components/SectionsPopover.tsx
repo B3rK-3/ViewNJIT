@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { graphData, sectionsData } from "../constants";
+import { _COURSE_DATA, sectionsData } from "../constants";
 
 interface SectionsPopoverProps {
     courseName: string;
@@ -61,7 +61,7 @@ export default function SectionsPopover({
     }, [courseName, currentTerm]);
 
     const courseTitle = useMemo(() => {
-        return graphData[courseName]?.title || "Unknown Course";
+        return _COURSE_DATA[courseName]?.title || "Unknown Course";
     }, [courseName]);
 
     const sections: SectionData[] = useMemo(() => {

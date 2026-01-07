@@ -2,13 +2,16 @@ import json
 import requests
 import time
 from functools import cache
-from backend.scrapers.constants import DEFAULT_RATING, CACHE_EXPIRATION_SECONDS, logger
-from backend.constants import (
+from backend.scrapers.constants import (
+    DEFAULT_RATING,
+    CACHE_EXPIRATION_SECONDS,
+    logger,
     COURSE_DATA,
-    REDIS,
-    REDIS_LECTURERS_KEY,
-    LECTURERS_DATA_FILE,
+    LECTURER_DATA,
+    set_redis_lecturer_data,
+    LecturerStructureModel,
 )
+from backend.constants import LECTURERS_DATA_FILE
 
 
 @cache
@@ -20,15 +23,6 @@ def sync_lecturer_rating(lecturer_name: str, existing_data: dict = None):
     """
     if not lecturer_name:
         return
-
-    # Check cache
-    if existing_data is None:
-        raw_data = REDIS.hget(REDIS_LECTURERS_KEY, lecturer_name)
-        if raw_data:
-            try:
-                existing_data = json.loads(raw_data)
-            except Exception:
-                existing_data = None
 
     if existing_data:
         last_updated = existing_data.get("last_updated", 0)
@@ -56,10 +50,8 @@ def sync_lecturer_rating(lecturer_name: str, existing_data: dict = None):
         # Update last_updated field
         rating["last_updated"] = time.time()
 
-        # Save to Redis
-        REDIS.hset(REDIS_LECTURERS_KEY, lecturer_name, json.dumps(rating))
-
-        logger.info(f"Updated rating for {lecturer_name}")
+        logger.info(f"Returned rating for {lecturer_name}")
+        return rating
 
     except Exception as e:
         logger.error(f"Error syncing rating for {lecturer_name}: {e}")
@@ -71,6 +63,13 @@ def check_all_lecturers():
     Uses pipelining for efficient batch operations.
     """
     # Collect all unique lecturers
+    if not LECTURER_DATA:
+        logger.error("LECTURER_DATA NOT LOADED!")
+        return
+    if not COURSE_DATA:
+        logger.error("COURSE_DATA NOT LOADED!")
+        return
+
     unique_lecturers = set()
     for course_info in COURSE_DATA.values():
         for term_sections in course_info.sections.values():
@@ -83,38 +82,30 @@ def check_all_lecturers():
     lecturers_list = sorted(list(unique_lecturers))
     logger.info(f"Found {len(lecturers_list)} unique lecturers to check.")
 
-    # Fetch all existing data at once to avoid N lookups
-    all_current_data = REDIS.hgetall(REDIS_LECTURERS_KEY)
-
     for i, lecturer in enumerate(lecturers_list):
         # Get existing data from our bulk fetch
-        raw_existing = all_current_data.get(lecturer)
-        existing_obj = None
-        if raw_existing:
-            try:
-                existing_obj = json.loads(raw_existing)
-            except Exception:
-                pass
+        existing_obj = LECTURER_DATA.get(lecturer)
 
         # Syncing rating will update Redis if needed
-        sync_lecturer_rating(lecturer, existing_data=existing_obj)
+        new_rating = sync_lecturer_rating(
+            lecturer_name=lecturer, existing_data=existing_obj
+        )
+
+        LECTURER_DATA[lecturer] = new_rating
 
         if (i + 1) % 50 == 0:
             logger.info(f"Processed {i + 1}/{len(lecturers_list)} lecturers...")
 
-    # Save final results back to file for persistence
-    try:
-        all_data = REDIS.hgetall(REDIS_LECTURERS_KEY)
-        final_json = {}
-        for name, rating_str in all_data.items():
-            final_json[name] = json.loads(rating_str)
+    set_redis_lecturer_data(LECTURER_DATA)
 
-        with open(LECTURERS_DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(final_json, f, indent=4)
-        logger.info(f"Saved {len(final_json)} lecturers back to {LECTURERS_DATA_FILE}")
-    except Exception as e:
-        logger.error(f"Error saving lecturer data to file: {e}")
+    # for now update the file too
+    with open(LECTURERS_DATA_FILE, "w") as f:
+        json.dump(LecturerStructureModel(LECTURER_DATA).model_dump(), f, indent=4)
 
 
 if __name__ == "__main__":
+    if not LECTURER_DATA:
+        raise Exception("LECTURER_DATA NOT LOADED!")
+    if not COURSE_DATA:
+        raise Exception("COURSE_DATA NOT LOADED!")
     check_all_lecturers()

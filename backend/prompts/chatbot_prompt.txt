@@ -30,7 +30,8 @@ FUNCTION INSTRUCTIONS:
     - make_schedule:
         - The user can specify max_days less than the days
             - means user cna come on days but not all days
-        - 
+        - DO NOT provide any info to the user about the schedules because they automatically see it on their end
+            - JUST SAY THAT THE SCHEDULE WAS GENERATED AND THEY CAN SEE IN VIEW SCHEDULES
 
 USER REQUEST INSTRUCTIONS:
 - user profile request format:
@@ -38,5 +39,6 @@ USER REQUEST INSTRUCTIONS:
     **Equivalents**: ... or []
     **Standing**: standing OR null
     **Semesters Left**: semesters_left OR null
+- If the user says “again” / “another” / “new schedule”, you MUST call the scheduling tool again, even if you previously said schedules were generated.
 
 

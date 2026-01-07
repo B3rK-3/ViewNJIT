@@ -11,11 +11,17 @@ import os
 import base64
 from typing import Dict, List, Optional, Any, Union
 from backend.scrapers.rmp import sync_lecturer_rating
-from backend.scrapers.constants import DESCRIPTION_PROCESS_PROMPT_FILE, logger, REDIS
+from backend.scrapers.constants import (
+    DESCRIPTION_PROCESS_PROMPT_FILE,
+    logger,
+    COURSE_DATA,
+    set_redis_course_data,
+    CourseStructureModel,
+)
+from backend.constants import COURSE_DATA_FILE
 
 dotenv.load_dotenv()
 
-# all_courses = {}
 
 links = [
     "https://catalog.njit.edu/graduate/computing-sciences/#coursestext",
@@ -317,7 +323,7 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
                     if new_lecturer:
                         # Get existing lecturer for this section if it exists
                         existing_sections = (
-                            all_courses.get(course_id, {})
+                            COURSE_DATA.get(course_id, {})
                             .get("sections", {})
                             .get(term, {})
                         )
@@ -325,8 +331,8 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
                         if section_key in existing_sections:
                             existing_lecturer = existing_sections[section_key][8]
 
-                        if existing_lecturer != new_lecturer:
-                            sync_lecturer_rating(new_lecturer)
+                        # if existing_lecturer != new_lecturer:
+                        #     sync_lecturer_rating(new_lecturer)
 
                     try:
                         num_credits = float(td_values[-3])
@@ -334,7 +340,7 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
                         num_credits = None
 
                 course_id = course_id.replace("\u00a0", " ")
-                if course_id not in all_courses.keys():
+                if course_id not in COURSE_DATA.keys():
                     logger.info(f"New Course Found: {course_id}")
                     # fetch individual course details
                     course_obj = get_individual_course(course_id)
@@ -347,24 +353,24 @@ def extract_sections_from_html(html_content: str, term: str) -> None:
                         course_obj["title"] = header
                     course_obj["sections"] = {}
                     course_obj["sections"][term] = sections
-                    all_courses[course_id] = course_obj
-                elif "sections" not in all_courses[course_id].keys():
-                    all_courses[course_id]["sections"] = {}
+                    COURSE_DATA[course_id] = course_obj
+                elif "sections" not in COURSE_DATA[course_id].keys():
+                    COURSE_DATA[course_id]["sections"] = {}
 
                 if (
                     honors_sections
-                    and term in all_courses[course_id]["sections"].keys()
+                    and term in COURSE_DATA[course_id]["sections"].keys()
                 ):
-                    all_courses[course_id]["sections"][term].update(sections)
+                    COURSE_DATA[course_id]["sections"][term].update(sections)
                 else:
-                    all_courses[course_id]["sections"][term] = sections
+                    COURSE_DATA[course_id]["sections"][term] = sections
 
-                if all_courses[course_id]["title"] in ("Unkown", ""):
-                    all_courses[course_id]["title"] = header
+                if COURSE_DATA[course_id]["title"] in ("Unkown", ""):
+                    COURSE_DATA[course_id]["title"] = header
 
-                all_courses[course_id]["credits"] = num_credits
+                COURSE_DATA[course_id]["credits"] = num_credits
 
-                if not all_courses[course_id]["sections"]:
+                if not COURSE_DATA[course_id]["sections"]:
                     logger.warning(f"{course_id} has no sections")
 
     except Exception as e:
@@ -424,8 +430,8 @@ def scrape_undergrad_grad_catalog(url: str) -> None:
             course_code = title[0].strip()
             title = title[1].strip()
 
-            if course_code in all_courses:
-                course_obj = all_courses[course_code]
+            if course_code in COURSE_DATA:
+                course_obj = COURSE_DATA[course_code]
                 if course_obj["title"] != title:
                     logger.info(
                         f"Title changed: {course_code} | Old: {course_obj['title']} | New: {title}"
@@ -444,9 +450,9 @@ def scrape_undergrad_grad_catalog(url: str) -> None:
                 course_obj.update(course_returns)
             if "sections" not in course_obj.keys():
                 course_obj["sections"] = {}
-            all_courses[course_code] = course_obj
+            COURSE_DATA[course_code] = course_obj
 
-        logger.info(f"Found {len(all_courses)} courses")
+        logger.info(f"Found {len(COURSE_DATA)} courses")
 
     except Exception as e:
         logger.error(f"Error scraping {url}: {e}")
@@ -461,16 +467,10 @@ def scrape_courses(
     """
     Main logic for scraping NJIT course catalog and section information.
     """
-    # global all_courses
-    if os.path.exists(output_file):
-        try:
-            with open(output_file, "r", encoding="utf-8") as f:
-                all_courses = json.load(f)
-        except Exception as e:
-            logger.warning(f"Could not load existing data from {output_file}: {e}")
-            all_courses = {}
-    else:
-        all_courses = {}
+    if not COURSE_DATA:
+        logger.error("COURSE_DATA NOT LOADED!")
+        return
+
     # If no flags are specified, run both scrapers.
     # If both flags are specified, run both.
     # Otherwise, run the specified scraper.
@@ -506,21 +506,14 @@ def scrape_courses(
 
     # Save to JSON and Redis
     if run_catalog or run_sections:
-        # 1. Save to local JSON
-        with open(output_file, "w") as f:
-            json.dump(all_courses, f, indent=4)
-        logger.info(f"Saved {len(all_courses)} courses to {output_file}")
-
-        # 2. Save to Redis with pipeline
-        logger.info("Syncing course data to Redis...")
-        try:
-            pipe = REDIS.pipeline()
-            for course_name, info in all_courses.items():
-                pipe.hset(REDIS_COURSES_KEY, course_name, json.dumps(info))
-            pipe.execute()
-            logger.info(f"Synced {len(all_courses)} courses to Redis.")
-        except Exception as e:
-            logger.error(f"Error syncing to Redis: {e}")
+        if output_file:
+            with open(output_file, "w") as f:
+                json.dump(COURSE_DATA, f, indent=4)
+        else:
+            set_redis_course_data(COURSE_DATA)
+            # for now update the file too
+            with open(COURSE_DATA_FILE, "w") as f:
+                json.dump(CourseStructureModel(COURSE_DATA).model_dump(), f, indent=4)
     else:
         logger.warning(
             "No action performed. Use catalog=True, sections=True, or both=False to run."
@@ -571,4 +564,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if not COURSE_DATA:
+        logger.error("COURSE_DATA NOT LOADED!")
+        raise Exception("COURSE_DATA NOT LOADED!")
     main()

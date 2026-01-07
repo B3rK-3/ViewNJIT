@@ -26,6 +26,7 @@ import {
 
 // Custom node component for courses
 function CourseNode({ data }: NodeProps) {
+    console.log(data);
     const label = String(data.label || "");
     const subtitle = data.subtitle ? String(data.subtitle) : null;
     const background = String(data.background || "");
@@ -490,7 +491,7 @@ export default function CourseGraph({
                 if (courseId === infoCourse) {
                     onCourseSelect("");
                     return;
-                } 
+                }
                 onCourseSelect(String(node.id));
             }
         },

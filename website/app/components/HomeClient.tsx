@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect, JSX } from "react";
+import React, {
+    useState,
+    useMemo,
+    useCallback,
+    useEffect,
+    JSX,
+    useRef,
+} from "react";
 import dynamic from "next/dynamic";
 
 import {
@@ -11,15 +18,17 @@ import {
     generateRandomRGB,
     getRandomInt,
     Nodes,
+    updateSectionsData,
+    initCourseData,
+    _COURSE_DATA,
 } from "../constants";
+
 import { Span } from "next/dist/trace";
 import MainSidebar from "./MainSidebar";
 import CourseSidebar from "./CourseSidebar";
 import ChatPopup from "./ChatPopup";
-import { graphData } from "../constants";
 
 const MAX_GRAPH_COURSES = 40;
-
 
 // Dynamic import to avoid SSR issues with React Flow
 const CourseGraph = dynamic(() => import("./CourseGraph"), {
@@ -36,6 +45,7 @@ interface HomeClientProps {
     initialSelectedCourse?: string;
     initialSearchQuery?: string;
     initialInfoCourse?: string;
+    course_data?: CourseStructure;
 }
 
 export default function HomeClient({
@@ -43,7 +53,15 @@ export default function HomeClient({
     initialSelectedCourse,
     initialSearchQuery,
     initialInfoCourse,
+    course_data,
 }: HomeClientProps) {
+    if (
+        course_data &&
+        Object.keys(_COURSE_DATA).length === 0 &&
+        Object.keys(course_data).length > 0
+    ) {
+        initCourseData(course_data);
+    }
     const [selectedCourse, setSelectedCourse] = useState<string>(
         initialSelectedCourse ?? ""
     );
@@ -53,9 +71,7 @@ export default function HomeClient({
     const [searchQuery, setSearchQuery] = useState(initialSearchQuery ?? "");
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [selectedTerm, setSelectedTerm] = useState(currentTerm);
-    const [displayOnlyTermCourses, setDisplayOnlyTermCourses] =
-        useState(false);
-   
+    const [displayOnlyTermCourses, setDisplayOnlyTermCourses] = useState(false);
 
     useEffect(() => {
         setSelectedCourse(initialSelectedCourse ?? "");
@@ -63,16 +79,19 @@ export default function HomeClient({
         setSearchQuery(initialSearchQuery ?? "");
     }, [initialInfoCourse, initialSearchQuery, initialSelectedCourse]);
 
-    
+    useEffect(() => {
+        updateSectionsData(selectedTerm);
+    }, [selectedTerm]);
 
     const courseList = useMemo(() => {
         if (displayOnlyTermCourses) {
             return [...currentTermCourses].sort();
         }
-        return Object.keys(graphData).sort();
+        return Object.keys(_COURSE_DATA).sort();
     }, [displayOnlyTermCourses, selectedTerm]);
 
     const filteredCourses = useMemo(() => {
+        console.log(courseList);
         if (!searchQuery) return courseList;
         return courseList.filter((course) =>
             course.toLowerCase().includes(searchQuery.toLowerCase())
@@ -92,6 +111,25 @@ export default function HomeClient({
     const [selectedDept, setSelectedDept] = useState<string>(
         initialSelectedDept ?? ""
     );
+    const graphContainerRef = useRef<HTMLDivElement>(null);
+    const [graphDimensions, setGraphDimensions] = useState({
+        width: 0,
+        height: 0,
+    });
+
+    useEffect(() => {
+        if (!graphContainerRef.current) return;
+
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const { width, height } = entry.contentRect;
+                setGraphDimensions({ width, height });
+            }
+        });
+
+        observer.observe(graphContainerRef.current);
+        return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
         setSelectedDept(initialSelectedDept ?? "");
@@ -114,7 +152,7 @@ export default function HomeClient({
 
     const infoData = useMemo(() => {
         if (!currentCourse) return undefined;
-        return graphData[currentCourse];
+        return _COURSE_DATA[currentCourse];
     }, [currentCourse]);
 
     const getPrereqText = useCallback((prereq: Nodes | null): JSX.Element => {
@@ -217,17 +255,17 @@ export default function HomeClient({
                             </div>
                             <div className="flex items-center gap-2">
                                 <span className="px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-sm font-medium">
-                                    {Object.keys(graphData).length} courses
+                                    {Object.keys(_COURSE_DATA).length} courses
                                 </span>
                             </div>
                         </div>
                     </header>
 
                     {/* Graph Container */}
-                    <div className="flex-1 p-4">
+                    <div className="flex-1 p-4" ref={graphContainerRef}>
                         <div className="w-full h-full rounded-2xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800">
                             <CourseGraph
-                                graphData={graphData}
+                                graphData={_COURSE_DATA}
                                 selectedCourse={selectedCourse || undefined}
                                 infoCourse={currentCourse}
                                 visibleCourses={graphCourses}
@@ -252,7 +290,11 @@ export default function HomeClient({
             </main>
 
             {/* Chat Popup */}
-            <ChatPopup />
+            <ChatPopup
+                setSearchQuery={setSearchQuery}
+                maxWidth={graphDimensions.width}
+                maxHeight={graphDimensions.height}
+            />
         </div>
     );
 }

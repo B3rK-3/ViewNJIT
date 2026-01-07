@@ -7,6 +7,8 @@ TERMS = Literal["202610", "202595", "202590", "202550", "202510"]
 #### ---- COURSE DATA SCHEMA - BEGIN ------ ####
 PermittedGrades = Literal["A", "B+", "B", "C+", "C", "C-", "F"]
 StandingsLiteral = Literal["FRESHMAN", "SOPHOMORE", "JUNIOR", "SENIOR", "GRAD"]
+# SectionsEntries = [Section,CRN,Days [Monday-M, Tuesday-T, Wednesday-W, Thursday-R, Friday-F]+,Times,Location,Status,	Max,Now,Instructor,Delivery Mode,Credits,Info,Comments]
+
 SectionEntries = Tuple[str, str, str, str, str, str, str, str, str, str, str, str, str]
 SectionInfo = Dict[str, SectionEntries]
 
@@ -159,13 +161,13 @@ class CourseInfoModel(BaseModel):
     credits: Optional[Union[float, None]] = None
     sections: Dict[str, SectionInfo]
 
+CourseDataType = Dict[str, CourseInfoModel]
 
-class CourseStructureModel(RootModel[Dict[str, CourseInfoModel]]):
+class CourseStructureModel(RootModel[CourseDataType]):
     pass
 
+
 #### ---- COURSE DATA SCHEMA - END ------ ####
-
-
 
 
 #### ---- TYPES - BEGIN ---- ####
@@ -178,9 +180,11 @@ class LecturerRating(BaseModel):
     numRatings: str
     legacyId: int
 
+LecturerRatingType = Dict[str, LecturerRating]
 
-class LecturerStructureModel(RootModel[Dict[str, LecturerRating]]):
+class LecturerStructureModel(RootModel[LecturerRatingType]):
     pass
+
 
 class CourseQueryFormat(BaseModel):
     model_config = {"extra": "forbid"}
@@ -309,10 +313,12 @@ class CourseMetadata(BaseModel):
     description: str
     hash: str
 
+
 #### ---- TYPES - END ---- ####
 
 
 #### ---- BACKEND REQUEST & RESPONSE SCHEMAS - BEGIN ----- #####
+
 
 # - REQUESTS - #
 class ChatRequest(BaseModel):
@@ -320,12 +326,22 @@ class ChatRequest(BaseModel):
     query: str
     term: TERMS
 
+
 class ProfsRequest(BaseModel):
     profs: list[str]
 
+
 # - RESPONSES - #
+
+
 class ChatResponse(BaseModel):
     response: str
+
+
+class StreamChunk(BaseModel):
+    type: Literal["text", "schedule"]
+    content: Any
+
 
 ProfsResponse = Dict[str, Union[LecturerRating, None]]
 

@@ -1,5 +1,7 @@
 import HomeClient from "./components/HomeClient";
+import { _COURSE_DATA, getCourseData } from "./constants";
 
-export default function Page() {
-    return <HomeClient />;
+export default async function Page() {
+    const data = await getCourseData()
+    return <HomeClient course_data={data} />;
 }

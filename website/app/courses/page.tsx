@@ -1,4 +1,5 @@
 import HomeClient from "../components/HomeClient";
+import { getCourseData } from "../constants";
 
 function normalizeParam(value: string) {
     return decodeURIComponent(value).replace(/\+/g, " ").trim();
@@ -13,5 +14,6 @@ export default async function Page({
     const search = searchParam?.search
         ? normalizeParam(searchParam.search)
         : "";
-    return <HomeClient initialSearchQuery={search} />;
+    const data = await getCourseData();
+    return <HomeClient initialSearchQuery={search} course_data={data} />;
 }

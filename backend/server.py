@@ -1,24 +1,25 @@
+from backend.types import CourseDataType
+from backend.constants import COURSE_DATA
+from backend.functions import construct_term_courses
 from backend.constants import LECTURER_DATA
-from backend.constants import (
-    REDIS_LECTURERS_KEY,
-    REDIS,
+from backend.functions import (
+    initialize_database,
+    set_local_data,
+    gemini_call_stream,
+)
+from backend.types import (
     ProfsResponse,
     ProfsRequest,
     ChatRequest,
-    ChatResponse,
-)
-from backend.functions import (
-    initialize_database,
-    gemini_call,
-    set_local_lecturers_data,
-    set_local_course_data,
 )
 from fastapi import FastAPI
-from fastapi.concurrency import run_in_threadpool
+
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import StreamingResponse
 import uvicorn
-from backend.scrapers.__main__ import start_background_scrapers
 import json
+
 
 app = FastAPI()
 origins = ["http://localhost:3000", "https://flownjit.com"]
@@ -29,17 +30,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-initialize_database()
-set_local_lecturers_data()
-set_local_course_data()
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.on_event("startup")
+def startup():
+    from backend.constants import warmup_constants
+
+    warmup_constants()
+
+    initialize_database()
+    set_local_data()
+    construct_term_courses()
+
+
+@app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    response = await run_in_threadpool(
-        gemini_call, request.query, request.sessionID, request.term
-    )
-    return {"response": response}
+    async def generate():
+        async for chunk in gemini_call_stream(
+            request.query, request.sessionID, request.term
+        ):
+            yield json.dumps(chunk) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @app.post("/getprofs", response_model=ProfsResponse)
@@ -52,8 +65,13 @@ async def prof_endpoint(request: ProfsRequest):
     return results
 
 
+@app.get("/getcourses", response_model=CourseDataType)
+async def course_endpoint():
+    return COURSE_DATA
+
+
 def start():
-    uvicorn.run(app, host="127.0.0.1", port=3001, workers=4)
+    uvicorn.run(app, host="127.0.0.1", port=3001)
 
 
 if __name__ == "__main__":

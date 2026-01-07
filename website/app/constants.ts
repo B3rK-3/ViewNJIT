@@ -4,10 +4,14 @@ import {
     hasCookie,
     setCookie,
 } from "cookies-next";
-import graphDataRaw from "../graph.json";
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 
-export const graphData = graphDataRaw as unknown as CourseStructure;
+export const baseURL =
+    process.env.NODE_ENV === "development"
+        ? "http://localhost:3001"
+        : "https://flownjit.com";
+export let _COURSE_DATA: CourseStructure = {};
+
 let sessionUUID: string = "";
 
 export const terms = ["202610", "202595", "202590", "202550", "202510"];
@@ -21,7 +25,6 @@ export let currentTerm = "202610";
 
 export let sectionsData: Record<string, SectionEntries> = {};
 export let currentTermCourses = new Set<string>();
-updateSectionsData(currentTerm);
 
 export type SectionTuple = [
     string, // 0: Section Number
@@ -210,7 +213,7 @@ export function updateSectionsData(term: string) {
     // Loop through each course in graphData
     sectionsData = {};
     currentTermCourses.clear();
-    for (const [courseName, courseInfo] of Object.entries(graphData)) {
+    for (const [courseName, courseInfo] of Object.entries(_COURSE_DATA)) {
         if (
             "sections" in courseInfo &&
             courseInfo.sections &&
@@ -225,15 +228,34 @@ export function updateSectionsData(term: string) {
 export async function getSessionUUID(): Promise<string | undefined> {
     const cookieUUIDkey = "uuidv4";
     if (sessionUUID) return sessionUUID;
-    
-    const UUID = (await getCookie(cookieUUIDkey))
-    
+
+    const UUID = await getCookie(cookieUUIDkey);
+
     if (UUID) {
         sessionUUID = UUID;
     } else {
         sessionUUID = uuidv4();
         setCookie(cookieUUIDkey, sessionUUID, { maxAge: 22464000 });
     }
-    
+
     return sessionUUID;
 }
+
+export function initCourseData(data: CourseStructure) {
+    _COURSE_DATA = data;
+    updateSectionsData(currentTerm);
+}
+
+export const getCourseData = async (): Promise<CourseStructure> => {
+    if (Object.keys(_COURSE_DATA).length > 0) return _COURSE_DATA;
+
+    let res = await fetch(baseURL + "/getcourses", {
+        headers: { "Accept-Encoding": "gzip" },
+    });
+    if (res.ok) {
+        _COURSE_DATA = await res.json();
+    }
+
+    updateSectionsData(currentTerm);
+    return _COURSE_DATA;
+};

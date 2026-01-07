@@ -1,16 +1,15 @@
+from backend.constants import SEMESTERS
+from backend import constants as c
 from backend.constants import (
     COURSE_DATA,
     CHROMA_COLLECTION_NAME,
-    REDIS,
     STANDINGS,
     VALID_COURSE_NAMES,
     term_courses,
     CHATBOT_PROMPT_FILE,
-    CHROMA_CLIENT,
-    CHROMA_COLLECTION,
-    CROSS_ENCODER,
     REDIS_LECTURERS_KEY,
     LECTURER_DATA,
+    COURSE_DATA_FILE,
 )
 from backend.types import (
     CourseQueryFormat,
@@ -21,14 +20,22 @@ from backend.types import (
     MakeScheduleFormat,
     TERMS,
     LecturerStructureModel,
-    CourseStructureModel
+    CourseStructureModel,
+    LecturerRatingType,
+    CourseDataType,
+    CourseInfoModel,
 )
 import hashlib
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Callable, Awaitable
 from google import genai
 from google.genai import types
 import json
 import itertools
+import asyncio
+import queue
+from concurrent.futures import ThreadPoolExecutor
+from backend.types import StreamChunk
+import random
 
 
 def construct_term_courses():
@@ -40,34 +47,61 @@ def construct_term_courses():
                 term_courses[term].append(course)
 
 
-construct_term_courses()
-
-
-def set_local_lecturers_data():
+def get_redis_lecturers_data():
     """
-    Loads initial lecturer data from the local JSON file into Redis if it exists.
+    Loads initial lecturer data from Redis.
     """
     try:
-        raw_lecturers_string = REDIS.get("lecturers")
+        raw_lecturers_string = c._REDIS.get("lecturers")
+        if not raw_lecturers_string:
+            return None
         raw_json = json.loads(raw_lecturers_string)
         parsed = LecturerStructureModel.model_validate(raw_json)
-        LECTURER_DATA.clear()
-        LECTURER_DATA.update(parsed.root)
+        return parsed.root
     except Exception as e:
-        print("Error:", e)
+        print("Error in loading lecturers_data:", e)
+        return None
 
 
-def set_local_course_data():
+def get_redis_course_data():
     try:
-        raw_courses_string = REDIS.get("courses")
+        raw_courses_string = c._REDIS.get("courses")
+        if not raw_courses_string:
+            return None
         raw_json = json.loads(raw_courses_string)
         parsed = CourseStructureModel.model_validate(raw_json)
-        COURSE_DATA.clear()
-        COURSE_DATA.update(parsed.root)
-        VALID_COURSE_NAMES.clear()
-        VALID_COURSE_NAMES.update(parsed.root.keys())
+        return parsed.root
     except Exception as e:
-        print("Error:", e)
+        print("Error in loading course_data:", e)
+        return None
+
+
+def set_redis_course_data(course_data: CourseDataType):
+    c._REDIS.set("courses", CourseStructureModel(course_data).model_dump_json())
+    return course_data
+
+
+def set_redis_lecturer_data(lecturer_data: LecturerRatingType):
+    c._REDIS.set("lecturers", LecturerStructureModel(lecturer_data).model_dump_json())
+    return lecturer_data
+
+
+def set_local_data():
+    course_data = get_redis_course_data()
+    if course_data:
+        COURSE_DATA.clear()
+        COURSE_DATA.update(course_data)
+        VALID_COURSE_NAMES.clear()
+        VALID_COURSE_NAMES.update(course_data.keys())
+    else:
+        print("Warning: Redis course data is empty.")
+
+    lecturers_data = get_redis_lecturers_data()
+    if lecturers_data:
+        LECTURER_DATA.clear()
+        LECTURER_DATA.update(lecturers_data)
+    else:
+        print("Warning: Redis lecturer data is empty.")
 
 
 def lcs_length(a: str, b: str) -> int:
@@ -152,7 +186,7 @@ def initialize_database() -> None:
     print("Initializing ChromaClient...")
 
     try:
-        heartbeat = CHROMA_CLIENT.heartbeat()
+        heartbeat = c._CHROMA_CLIENT.heartbeat()
         print("ChromaDB Heartbeat:", heartbeat)
     except Exception as e:
         print("Could not initialize ChromaDB PersistentClient at ./chromadb")
@@ -173,7 +207,7 @@ def initialize_database() -> None:
         computed_hash, combined_text = generate_hash(title, description)
 
         # retrieve specific item to check hash
-        result = CHROMA_COLLECTION.get(ids=[course_id], include=["metadatas"])
+        result = c._CHROMA_COLLECTION.get(ids=[course_id], include=["metadatas"])
 
         needs_upsert = False
         if not result["ids"]:
@@ -198,7 +232,7 @@ def initialize_database() -> None:
 
         # batch upsert
         if len(ids_to_upsert) >= 100:
-            CHROMA_COLLECTION.upsert(
+            c._CHROMA_COLLECTION.upsert(
                 ids=ids_to_upsert,
                 documents=documents_to_upsert,
                 metadatas=metadatas_to_upsert,
@@ -210,7 +244,7 @@ def initialize_database() -> None:
 
     # final batch
     if len(ids_to_upsert) > 0:
-        CHROMA_COLLECTION.upsert(
+        c._CHROMA_COLLECTION.upsert(
             ids=ids_to_upsert,
             documents=documents_to_upsert,
             metadatas=metadatas_to_upsert,  # type: ignore
@@ -423,7 +457,11 @@ def has_time_conflict(section1_times: Dict, section2_times: Dict) -> bool:
     return False
 
 
-def get_tools(user_prereqs: UserFulfilled, term: TERMS):
+def get_tools(
+    user_prereqs: UserFulfilled,
+    term: TERMS,
+    on_data: Optional[Callable[[Any], None]] = None,
+):
     def course_query(args: CourseQueryFormat) -> List[Dict[str, Any]]:
         """
         Queries the course database for semantic similarities.
@@ -448,7 +486,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
         fetch_k = 500
 
         try:
-            results = CHROMA_COLLECTION.query(
+            results = c._CHROMA_COLLECTION.query(
                 ids=get_available_courses(
                     user_prereqs,
                     args.only_prereqs_fulfilled,
@@ -460,7 +498,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             )
 
             if not results["ids"]:
-                return []
+                return {"response": []}
 
             flat_results: List[Dict[str, Any]] = []
             ids_list = results["ids"][0]
@@ -492,7 +530,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             # rerank with cross encoder
             if flat_results:
                 pairs = [[query_text, item["document"]] for item in flat_results]
-                scores = CROSS_ENCODER.predict(pairs)
+                scores = c._CROSS_ENCODER.predict(pairs)
                 for i, item in enumerate(flat_results):
                     item["score"] = float(scores[i])
 
@@ -507,7 +545,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
 
         except Exception as e:
             print("Error querying ChromaDB:", e)
-            return []
+            return {"error": "error"}
 
     def update_user_profile(args: UpdateUserProfile):
         """
@@ -600,7 +638,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             return res
         course_name = res
 
-        return COURSE_DATA[course_name].desc
+        return {"description": COURSE_DATA[course_name].desc}
 
     def can_take_course(args: CourseSearchFormat) -> bool | str:
         """
@@ -624,7 +662,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             return f"You have already completed or are currently taking {course_name}."
 
         course_info = COURSE_DATA[course_name]
-        return check_prereq_tree(course_info.prereq_tree, user_prereqs)
+        return {"response": check_prereq_tree(course_info.prereq_tree, user_prereqs)}
 
     def make_schedule(args: MakeScheduleFormat) -> Dict[str, Any]:
         """
@@ -708,10 +746,10 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
                 for sid, sdata in term_sections.items():
                     instructor = sdata[8]  # Index 8 is Instructor
                     try:
-                        rating_json = REDIS.hget(REDIS_LECTURERS_KEY, instructor)
-                        if rating_json:
-                            rating_obj = json.loads(rating_json)
-                            rating_val = float(rating_obj.get("avgRating", 0))
+                        lecturer_rating = LECTURER_DATA[instructor]
+                        # only if the rating exists we can add
+                        if lecturer_rating:
+                            rating_val = float(lecturer_rating.avgRating)
                             if rating_val >= args.min_rmp_rating:
                                 filtered_by_rating[sid] = sdata
                     except Exception:
@@ -779,6 +817,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
             }
 
         all_combinations = list(itertools.product(*course_sections_list))
+        random.shuffle(all_combinations)
 
         valid_schedules = []
         for combo in all_combinations:
@@ -807,25 +846,32 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
                 # Remove parsed_times from output (internal use only)
                 clean_sections = []
                 for section in combo:
-                    clean_section = {
-                        k: v for k, v in section.items() if k != "parsed_times"
-                    }
+                    clean_section = {k: v for k, v in section.items()}
                     clean_sections.append(clean_section)
 
-                valid_schedules.append(
-                    {
-                        "sections": clean_sections,
-                        "days_used": sorted(list(unique_days)),
-                        "num_days": len(unique_days),
-                    }
-                )
+                schedule_obj = {
+                    "sections": clean_sections,
+                    "days_used": sorted(list(unique_days)),
+                    "num_days": len(unique_days),
+                }
+                if on_data:
+                    on_data(schedule_obj)
+
+                valid_schedules.append(schedule_obj)
+
+                if len(valid_schedules) == 5:
+                    break
 
         return {
             "errors": errors if errors else None,
             "schedules": valid_schedules,
-            "total_valid_schedules": len(valid_schedules),
-            "message": f"Found {len(valid_schedules)} schedule(s) fitting within {args.max_days} day(s) with no time conflicts.",
         }
+
+    def get_term():
+        """
+        Call function to get current term.
+        """
+        return {"response": f"{term[:-2]} {SEMESTERS[term[-2:]]}"}
 
     return [
         course_query,
@@ -833,6 +879,7 @@ def get_tools(user_prereqs: UserFulfilled, term: TERMS):
         get_course_description,
         can_take_course,
         make_schedule,
+        get_term,
     ]
 
 
@@ -892,8 +939,8 @@ def load_prereqs(prereqs_str: str) -> UserFulfilled:
 def gemini_call(input_text: str, session_id: str, term: TERMS):
     client = genai.Client()
 
-    history_raw = REDIS.get(f"{session_id}:history")
-    prereqs_raw = REDIS.get(f"{session_id}:prereqs")
+    history_raw = c._REDIS.get(f"{session_id}:history")
+    prereqs_raw = c._REDIS.get(f"{session_id}:prereqs")
     history = load_history(history_raw)
     parsed_userprereqs = load_prereqs(prereqs_raw)
     tools = get_tools(parsed_userprereqs, term)
@@ -918,6 +965,165 @@ def gemini_call(input_text: str, session_id: str, term: TERMS):
 
     response = chat.send_message(input_text)
 
-    REDIS.set(f"{session_id}:history", dump_history(chat._curated_history))
-    REDIS.set(f"{session_id}:prereqs", dump_prereqs(parsed_userprereqs))
+    c._REDIS.set(f"{session_id}:history", dump_history(chat._curated_history))
+    c._REDIS.set(f"{session_id}:prereqs", dump_prereqs(parsed_userprereqs))
     return response.text
+
+
+async def gemini_call_stream(input_text: str, session_id: str, term: TERMS):
+    client = genai.Client()
+
+    history_raw = c._REDIS.get(f"{session_id}:history")
+    prereqs_raw = c._REDIS.get(f"{session_id}:prereqs")
+    history = load_history(history_raw)
+    parsed_userprereqs = load_prereqs(prereqs_raw)
+
+    data_queue = queue.Queue()
+
+    def on_data(data):
+        data_queue.put(data)
+
+    tools = get_tools(parsed_userprereqs, term, on_data=on_data)
+    tool_map = {f.__name__: f for f in tools}
+
+    with open(CHATBOT_PROMPT_FILE, "r", encoding="utf-8") as f:
+        prompt = f.read()
+
+    sys_instruction = f"User's current profile: {prereqs_raw}." + prompt
+
+    chat = client.chats.create(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=sys_instruction,
+            tools=tools,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
+        ),
+        history=history,
+    )
+
+    loop = asyncio.get_running_loop()
+
+    # Helper to consume stream in thread
+    async def consume_stream_and_yield(response_iterator):
+        text_queue = queue.Queue()
+
+        def iter_proc():
+            try:
+                for chunk in response_iterator:
+                    text_queue.put(chunk)
+            except Exception as e:
+                print(f"Stream error: {e}")
+            finally:
+                text_queue.put(None)
+
+        future = loop.run_in_executor(None, iter_proc)
+
+        while True:
+            try:
+                chunk = text_queue.get_nowait()
+                if chunk is None:
+                    break
+
+                try:
+                    if chunk.text:
+                        yield StreamChunk(type="text", content=chunk.text).model_dump()
+                except ValueError:
+                    pass
+            except queue.Empty:
+                await asyncio.sleep(0.01)
+
+        await future
+        return
+
+    # Initial Request
+    response_stream = await loop.run_in_executor(
+        None, lambda: chat.send_message_stream(input_text)
+    )
+
+    async for chunk_out in consume_stream_and_yield(response_stream):
+        yield chunk_out
+
+    # Since we can't easily get the aggregated response from the iterator wrapper in the consume function
+    # unless we return it, and we did return response_iterator which IS the response object.
+    while True:
+        last_msg = chat._curated_history[-1]
+        function_calls = [
+            part.function_call for part in (last_msg.parts or []) if part.function_call
+        ]
+
+        if not function_calls:
+            break
+
+        parts = []
+        for call in function_calls:
+            fn_name = call.name
+            fn_args = call.args
+            fn_args_dict = dict(fn_args)
+
+            # 2. THE FIX: Check for the 'args' wrapper and unwrap it
+            if "args" in fn_args_dict and len(fn_args_dict) == 1:
+                fn_args = fn_args_dict["args"]
+
+            target_func = tool_map.get(fn_name)
+            result = None
+
+            if not target_func:
+                result = {"error": f"Tool {fn_name} not found"}
+            else:
+                try:
+                    args_obj = None
+                    if fn_name == "course_query":
+                        args_obj = CourseQueryFormat(**fn_args)
+                    elif fn_name == "update_user_profile":
+                        args_obj = UpdateUserProfile(**fn_args)
+                    elif fn_name == "get_course_description":
+                        args_obj = CourseSearchFormat(**fn_args)
+                    elif fn_name == "can_take_course":
+                        args_obj = CourseSearchFormat(**fn_args)
+                    elif fn_name == "make_schedule":
+                        args_obj = MakeScheduleFormat(**fn_args)
+
+                    if fn_name == "make_schedule":
+                        with ThreadPoolExecutor() as executor:
+                            future = executor.submit(target_func, args_obj)
+                            while not future.done():
+                                while not data_queue.empty():
+                                    item = data_queue.get()
+                                    yield StreamChunk(
+                                        type="schedule", content=item
+                                    ).model_dump()
+                                await asyncio.sleep(0.05)
+                            while not data_queue.empty():
+                                item = data_queue.get()
+                                yield StreamChunk(
+                                    type="schedule", content=item
+                                ).model_dump()
+                            result = future.result()
+                    else:
+                        if args_obj:
+                            result = await loop.run_in_executor(
+                                None, target_func, args_obj
+                            )
+                        else:
+                            result = await loop.run_in_executor(None, target_func)
+
+                except Exception as e:
+                    print(f"Error executing {fn_name}: {e}")
+                    result = {"error": str(e)}
+
+            parts.append(
+                types.Part.from_function_response(name=fn_name, response=result)
+            )
+
+        # Send function response
+        response_stream = await loop.run_in_executor(
+            None, lambda: chat.send_message_stream(parts)
+        )
+
+        async for chunk_out in consume_stream_and_yield(response_stream):
+            yield chunk_out
+
+    c._REDIS.set(f"{session_id}:history", dump_history(chat._curated_history))
+    c._REDIS.set(f"{session_id}:prereqs", dump_prereqs(parsed_userprereqs))
