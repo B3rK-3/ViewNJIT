@@ -62,6 +62,7 @@ export default function HomeClient({
     ) {
         initCourseData(course_data);
     }
+    console.log(course_data);
     const [selectedCourse, setSelectedCourse] = useState<string>(
         initialSelectedCourse ?? ""
     );
