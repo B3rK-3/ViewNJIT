@@ -45,6 +45,5 @@ chroma
 website/node_modules
 website/.next
 website/out
-data/
 *chromadb*
 *__pycache__*
