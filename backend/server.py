@@ -22,7 +22,7 @@ import json
 
 
 app = FastAPI()
-origins = ["http://localhost:3000", "https://flownjit.com"]
+origins = ["http://localhost:3000", "https://flownjit.com", "https://www.flownjit.com"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
