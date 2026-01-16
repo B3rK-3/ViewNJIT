@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send, Calendar } from "lucide-react";
+import { MessageCircle, X, Send, Calendar, Paperclip } from "lucide-react";
 import ScheduleViewer from "./ScheduleViewer";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -39,6 +39,39 @@ export default function ChatPopup({
     const [isResizing, setIsResizing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const currentScheduleIndex = useRef(0);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            const files = Array.from(e.target.files).filter(
+                (f) => f.type === "application/pdf"
+            );
+            setSelectedFiles((prev) => [...prev, ...files]);
+        }
+    };
+
+    const removeFile = (index: number) => {
+        setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const compressFile = async (file: File): Promise<string> => {
+        const arrayBuffer = await file.arrayBuffer();
+        const stream = new Response(arrayBuffer).body!.pipeThrough(
+            new CompressionStream("gzip")
+        );
+        const compressedResponse = new Response(stream);
+        const compressedBuffer = await compressedResponse.arrayBuffer();
+
+        // Convert to base64
+        let binary = "";
+        const bytes = new Uint8Array(compressedBuffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -111,11 +144,17 @@ export default function ChatPopup({
         setSchedules(newSchedules);
     };
 
-    const handleSendMessage = () => {
-        if (inputValue.trim()) {
+    const handleSendMessage = async () => {
+        if (inputValue.trim() || selectedFiles.length > 0) {
             const newMessage = {
                 id: Date.now(),
-                text: inputValue,
+                text:
+                    inputValue +
+                    (selectedFiles.length > 0
+                        ? `\n\n[Attached: ${selectedFiles
+                              .map((f) => f.name)
+                              .join(", ")}]`
+                        : ""),
                 sender: "user" as const,
             };
             setMessages([...messages, newMessage]);
@@ -123,6 +162,13 @@ export default function ChatPopup({
 
             // Reset current request index for overwriting logic
             currentScheduleIndex.current = 0;
+
+            const attachments =
+                selectedFiles.length > 0
+                    ? await Promise.all(
+                          selectedFiles.map((f) => compressFile(f))
+                      )
+                    : undefined;
 
             sessionUUIDPromise.then((sessionUUID) => {
                 fetch(chatURL, {
@@ -134,6 +180,7 @@ export default function ChatPopup({
                         sessionID: sessionUUID,
                         term: currentTerm,
                         query: inputValue,
+                        attachments: attachments,
                     }),
                 })
                     .then(async (response) => {
@@ -221,6 +268,7 @@ export default function ChatPopup({
             });
 
             setInputValue("");
+            setSelectedFiles([]);
         }
     };
 
@@ -390,8 +438,45 @@ export default function ChatPopup({
                     </div>
                 )}
 
+                {/* Attachment Preview */}
+                {selectedFiles.length > 0 && (
+                    <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex flex-wrap gap-2 shrink-0">
+                        {selectedFiles.map((file, index) => (
+                            <div
+                                key={index}
+                                className="flex items-center gap-1 bg-white dark:bg-slate-700 px-2 py-1 rounded text-[10px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600"
+                            >
+                                <span className="truncate max-w-[100px]">
+                                    {file.name}
+                                </span>
+                                <button
+                                    onClick={() => removeFile(index)}
+                                    className="text-slate-400 hover:text-red-500 cursor-pointer"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Input Area */}
-                <div className="border-t border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 flex gap-2 shrink-0">
+                <div className="border-t border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 flex gap-2 shrink-0 items-center">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        accept="application/pdf"
+                        multiple
+                        className="hidden"
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                        title="Attach PDF"
+                    >
+                        <Paperclip className="w-5 h-5" />
+                    </button>
                     <input
                         type="text"
                         value={inputValue}
@@ -402,7 +487,7 @@ export default function ChatPopup({
                     />
                     <button
                         onClick={handleSendMessage}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors cursor-pointer"
                     >
                         <Send className="w-5 h-5" />
                     </button>

@@ -22,6 +22,7 @@ import {
     initCourseData,
     _COURSE_DATA,
 } from "../constants";
+import { useRouter } from "next/navigation";
 
 import { Span } from "next/dist/trace";
 import MainSidebar from "./MainSidebar";
@@ -62,27 +63,61 @@ export default function HomeClient({
     ) {
         initCourseData(course_data);
     }
-    console.log(course_data);
+    // console.log(course_data);
     const [selectedCourse, setSelectedCourse] = useState<string>(
         initialSelectedCourse ?? ""
     );
     const [currentCourse, setCurrentCourse] = useState<string>(
         initialInfoCourse ?? initialSelectedCourse ?? ""
     );
-    const [searchQuery, setSearchQuery] = useState(initialSearchQuery ?? "");
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [selectedTerm, setSelectedTerm] = useState(currentTerm);
     const [displayOnlyTermCourses, setDisplayOnlyTermCourses] = useState(false);
+    const router = useRouter();
+
+    const [searchQuery, setSearchQuery] = useState(initialSearchQuery ?? "");
+    const [selectedDept, setSelectedDept] = useState(
+        initialSelectedDept ?? "ALL"
+    );
 
     useEffect(() => {
         setSelectedCourse(initialSelectedCourse ?? "");
         setCurrentCourse(initialInfoCourse ?? initialSelectedCourse ?? "");
         setSearchQuery(initialSearchQuery ?? "");
-    }, [initialInfoCourse, initialSearchQuery, initialSelectedCourse]);
+        setSelectedDept(initialSelectedDept ?? "ALL");
+    }, [
+        initialInfoCourse,
+        initialSearchQuery,
+        initialSelectedCourse,
+        initialSelectedDept,
+    ]);
 
     useEffect(() => {
         updateSectionsData(selectedTerm);
     }, [selectedTerm]);
+
+    const handleDeptChange = (newDept: string) => {
+        setSelectedDept(newDept);
+        const url = new URL(window.location.origin);
+        url.pathname += `dept/${newDept}`;
+        if (searchQuery) {
+            url.searchParams.set("search", searchQuery);
+        } else {
+            url.searchParams.delete("search");
+        }
+        window.history.replaceState(null, "", url.toString());
+    };
+
+    const handleSearchChange = (newSearch: string) => {
+        setSearchQuery(newSearch);
+        const url = new URL(window.location.href);
+        if (newSearch) {
+            url.searchParams.set("search", newSearch);
+        } else {
+            url.searchParams.delete("search");
+        }
+        window.history.replaceState(null, "", url.toString());
+    };
 
     const courseList = useMemo(() => {
         if (displayOnlyTermCourses) {
@@ -92,7 +127,7 @@ export default function HomeClient({
     }, [displayOnlyTermCourses, selectedTerm]);
 
     const filteredCourses = useMemo(() => {
-        console.log(courseList);
+        // console.log(courseList);
         if (!searchQuery) return courseList;
         return courseList.filter((course) =>
             course.toLowerCase().includes(searchQuery.toLowerCase())
@@ -109,9 +144,6 @@ export default function HomeClient({
         return Array.from(depts).sort();
     }, [courseList]);
 
-    const [selectedDept, setSelectedDept] = useState<string>(
-        initialSelectedDept ?? ""
-    );
     const graphContainerRef = useRef<HTMLDivElement>(null);
     const [graphDimensions, setGraphDimensions] = useState({
         width: 0,
@@ -132,13 +164,9 @@ export default function HomeClient({
         return () => observer.disconnect();
     }, []);
 
-    useEffect(() => {
-        setSelectedDept(initialSelectedDept ?? "");
-    }, [initialSelectedDept]);
-
     const displayedCourses = useMemo(() => {
         let courses = filteredCourses;
-        if (selectedDept) {
+        if (selectedDept != "ALL") {
             courses = courses.filter((course) =>
                 course.startsWith(selectedDept + " ")
             );
@@ -208,9 +236,9 @@ export default function HomeClient({
         <div className="flex h-dvh bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950">
             <MainSidebar
                 searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                selectedDept={selectedDept}
-                setSelectedDept={setSelectedDept}
+                setSearchQuery={handleSearchChange}
+                selectedDept={selectedDept == "ALL" ? "" : selectedDept}
+                setSelectedDept={handleDeptChange}
                 departments={departments}
                 displayedCourses={displayedCourses}
                 selectedCourse={selectedCourse}
@@ -292,7 +320,7 @@ export default function HomeClient({
 
             {/* Chat Popup */}
             <ChatPopup
-                setSearchQuery={setSearchQuery}
+                setSearchQuery={handleSearchChange}
                 maxWidth={graphDimensions.width}
                 maxHeight={graphDimensions.height}
             />

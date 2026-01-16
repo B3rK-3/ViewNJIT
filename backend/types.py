@@ -161,7 +161,9 @@ class CourseInfoModel(BaseModel):
     credits: Optional[Union[float, None]] = None
     sections: Dict[str, SectionInfo]
 
+
 CourseDataType = Dict[str, CourseInfoModel]
+
 
 class CourseStructureModel(RootModel[CourseDataType]):
     pass
@@ -180,7 +182,9 @@ class LecturerRating(BaseModel):
     numRatings: str
     legacyId: int
 
+
 LecturerRatingType = Dict[str, LecturerRating]
+
 
 class LecturerStructureModel(RootModel[LecturerRatingType]):
     pass
@@ -230,10 +234,12 @@ class UserCourseInfo(BaseModel):
 
 class UserFulfilled(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    new_user: bool = True
     courses: Dict[str, UserCourseInfo] = {}
     equivalents: List[str] = []
     standing: Optional[StandingsLiteral] = None
     semesters_left: Optional[int] = None
+    honors: bool = False
 
 
 class RemoveFromUserProfile(BaseModel):
@@ -272,6 +278,10 @@ class UpdateUserProfile(BaseModel):
     semesters_left: Optional[int] = Field(
         default=None, description="Number of semesters remaining until graduation."
     )
+    honors: bool = Field(
+        default=False,
+        description="True if student is honors false if not. excludes honors courses",
+    )
     to_remove: Optional[RemoveFromUserProfile] = Field(
         default=None,
         description="Removes stuff from profile.",  # TODO: change stuff
@@ -294,9 +304,9 @@ class MakeScheduleFormat(BaseModel):
         default=5,
         description="Maximum number of days per week the user wants to attend classes (1-5).",
     )
-    locked_in_sections: Optional[Dict[str, List[int]]] = Field(
+    locked_in_sections: Optional[Dict[str, List[str]]] = Field(
         default=None,
-        description="Dictionary where keys are course names and values are lists of section numbers (integers) to lock in. Only these sections will be considered for the respective courses.",
+        description="Dictionary where keys are course names and values are lists of section numbers (strings) to lock in. Only these sections will be considered for the respective courses.",
     )
     min_rmp_rating: Optional[float] = Field(
         default=0,
@@ -305,6 +315,10 @@ class MakeScheduleFormat(BaseModel):
     days: Optional[List[str]] = Field(
         default=None,
         description="List of specific days (e.g., ['Monday', 'Wednesday']) the user wants to attend classes. Only sections meeting on these days will be included.",
+    )
+    honors: bool = Field(
+        default=False,
+        description="True if student is honors false if not. excludes honors courses",
     )
 
 
@@ -325,6 +339,7 @@ class ChatRequest(BaseModel):
     sessionID: str
     query: str
     term: TERMS
+    attachments: Optional[List[str]] = None
 
 
 class ProfsRequest(BaseModel):

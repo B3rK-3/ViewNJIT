@@ -36,6 +36,10 @@ import queue
 from concurrent.futures import ThreadPoolExecutor
 from backend.types import StreamChunk
 import random
+import re
+import gzip
+import base64
+import io
 
 
 def construct_term_courses():
@@ -164,6 +168,21 @@ def normalize_course(course_name: str) -> str | dict:
         "error_message": f"{course_name} is not a valid course!",
         "did_you_mean": similar_courses[:5],
     }
+
+
+def normalize_section_id(sid: Any) -> str:
+    """
+    Normalizes a section ID by padding it to 3 characters.
+    Example: 2 -> 002, H2 -> H02, HM2 -> HM2
+    """
+    sid_str = str(sid).upper()
+    match = re.match(r"^([A-Z]*)(\d+)$", sid_str)
+    if match:
+        prefix, number = match.groups()
+        needed_len = 3 - len(prefix)
+        if needed_len > 0:
+            return prefix + number.zfill(needed_len)
+    return sid_str
 
 
 def generate_hash(title: str, description: str) -> Tuple[str, str]:
@@ -559,6 +578,7 @@ def get_tools(
             "equivalents": "List of courses that the user has equivalents for. Example: (equivalents for CS 350).",
             "standing": "User's academic standing (FRESHMAN, SOPHOMORE, JUNIOR, SENIOR, GRAD).",
             "semesters_left": "Number of semesters remaining until graduation.",
+            "honors": "True if student is honors False if not. excludes honors courses",
             "to_remove": {
                         "courses": "List of courses to remove.",
                         "equivalents": "List of courses equivalents to remove.",
@@ -617,7 +637,8 @@ def get_tools(
 
             if to_remove.semesters_left:
                 user_prereqs.semesters_left = None
-
+        user_prereqs.new_user = False
+        user_prereqs.honors = args.honors
         return user_prereqs.model_dump()
 
     def get_course_description(args: CourseSearchFormat) -> str:
@@ -672,7 +693,7 @@ def get_tools(
             {
             "courses": "List of course names to include in the schedule.",
             "max_days": "Maximum number of days per week the user wants to attend classes (1-5).",
-            "locked_in_sections": "Dictionary where keys are course names and values are lists of section numbers (integers) to lock in.",
+            "locked_in_sections": "Dictionary where keys are course names and values are lists of section numbers (strings) to lock in. Only these sections will be considered for the respective courses.",
             "min_rmp_rating": "Minimum RateMyProfessors rating (0.0 - 5.0) required for instructors.",
             "days": "List of specific days (e.g., ['Monday', 'Wednesday']) the user can attend classes."
             }
@@ -732,12 +753,20 @@ def get_tools(
             # 1. Locked-in Sections
             if normalized_locked_in and course_name in normalized_locked_in:
                 allowed_sections = {
-                    f"{s:03}" for s in normalized_locked_in[course_name]
+                    normalize_section_id(s) for s in normalized_locked_in[course_name]
                 }
                 term_sections = {
                     sid: sdata
                     for sid, sdata in term_sections.items()
                     if sid in allowed_sections
+                }
+            else:
+                # filter for honors and high school classes
+                term_sections = {
+                    sid: sdata
+                    for sid, sdata in term_sections.items()
+                    if not sid.startswith("HS")
+                    and (not sid.startswith("H") or user_prereqs.honors)
                 }
 
             # 2. RMP Rating
@@ -883,7 +912,7 @@ def get_tools(
     ]
 
 
-def dump_history(history):
+def dump_history(history: List[types.Content]):
     clean_history = []
 
     for h in history:
@@ -892,10 +921,18 @@ def dump_history(history):
 
         # Iterate through parts to remove 'thought' and 'thought_signature'
         if "parts" in data:
+            parts = []
             for part in data["parts"]:
-                # safely remove these keys if they exist
-                part.pop("thought", None)
-                part.pop("thought_signature", None)
+                curr_part = {}
+                if "text" in part:
+                    curr_part['text'] = part["text"]
+                if "function_call" in part:
+                    curr_part['function_call'] = part["function_call"]
+                if "function_response" in part:
+                    curr_part['function_response'] = part["function_response"]
+                if curr_part:
+                    parts.append(curr_part)
+            data["parts"] = parts
 
         clean_history.append(data)
 
@@ -970,7 +1007,12 @@ def gemini_call(input_text: str, session_id: str, term: TERMS):
     return response.text
 
 
-async def gemini_call_stream(input_text: str, session_id: str, term: TERMS):
+async def gemini_call_stream(
+    input_text: str,
+    session_id: str,
+    term: TERMS,
+    attachments: Optional[List[str]] = None,
+):
     client = genai.Client()
 
     history_raw = c._REDIS.get(f"{session_id}:history")
@@ -1038,8 +1080,22 @@ async def gemini_call_stream(input_text: str, session_id: str, term: TERMS):
         return
 
     # Initial Request
+    message_parts = [input_text]
+    if attachments:
+        for att in attachments:
+            try:
+                # Decompress gzip
+                compressed_data = base64.b64decode(att)
+                with gzip.GzipFile(fileobj=io.BytesIO(compressed_data)) as f:
+                    pdf_data = f.read()
+                message_parts.append(
+                    types.Part.from_bytes(data=pdf_data, mime_type="application/pdf")
+                )
+            except Exception as e:
+                print(f"Error processing attachment: {e}")
+
     response_stream = await loop.run_in_executor(
-        None, lambda: chat.send_message_stream(input_text)
+        None, lambda: chat.send_message_stream(message_parts)
     )
 
     async for chunk_out in consume_stream_and_yield(response_stream):

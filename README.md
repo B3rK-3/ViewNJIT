@@ -46,7 +46,11 @@ A comprehensive course prerequisite visualization and planning tool for New Jers
 ├── website/                   # Next.js frontend application
 │   ├── app/
 │   │   ├── components/        # React components (Graph, Sidebar, Popovers)
-│   │   └── page.tsx           # Interactive home page
+│   │   ├── dept/              # Department-based routing
+│   │   │   ├── all/           # Displays all departments/courses
+│   │   │   ├── [dept]/        # Department-specific view
+│   │   │   └── [dept]/[course]# Course-specific view
+│   │   └── page.tsx           # Interactive home page (same as dept/all)
 └── chromadb/                  # Local vector search index
 ```
 

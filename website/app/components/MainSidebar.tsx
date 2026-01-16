@@ -42,7 +42,7 @@ export default function MainSidebar({
     displayOnlyTermCourses,
     setDisplayOnlyTermCourses,
 }: MainSidebarProps) {
-    console.log(displayedCourses);
+    // console.log(displayedCourses);
     const getTermLabel = (term: string) => {
         const semesterCode = term.slice(-2);
         const year = term.slice(0, -2);
@@ -99,7 +99,7 @@ export default function MainSidebar({
                             onChange={(e) => setSelectedDept(e.target.value)}
                             className="w-full px-3 py-2 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                         >
-                            <option value="">All Departments</option>
+                            <option value="ALL">All Departments</option>
                             {departments.map((dept) => (
                                 <option key={dept} value={dept}>
                                     {dept}

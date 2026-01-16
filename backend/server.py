@@ -48,7 +48,7 @@ def startup():
 async def chat_endpoint(request: ChatRequest):
     async def generate():
         async for chunk in gemini_call_stream(
-            request.query, request.sessionID, request.term
+            request.query, request.sessionID, request.term, request.attachments
         ):
             yield json.dumps(chunk) + "\n"
 

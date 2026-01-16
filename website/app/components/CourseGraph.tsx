@@ -26,7 +26,7 @@ import {
 
 // Custom node component for courses
 function CourseNode({ data }: NodeProps) {
-    console.log(data);
+    // console.log(data);
     const label = String(data.label || "");
     const subtitle = data.subtitle ? String(data.subtitle) : null;
     const background = String(data.background || "");
